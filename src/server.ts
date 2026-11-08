@@ -13,19 +13,32 @@ import { appendMessage, clearChat, loadChats, studyStreak, type ChatMessage } fr
 import { loadSettings, saveSettings } from "./settings.js";
 import { runDoctor } from "./doctor.js";
 import { DATA_DIR } from "./paths.js";
-import { runSync } from "./sync.js";
+import { GranolaConnection, GranolaError, NotConnectedError, type GranolaService } from "./granola/api.js";
+import { runDirectSync } from "./granola/sync.js";
 
 export interface AppDeps {
   runner: Runner;
   notesDir: string;
   sampleDir: string;
   dataDir: string;
+  /** Direct connection to Granola; tests pass a fake. */
+  granola?: GranolaService;
 }
 
 const HISTORY_TURNS = 6;
 
+function granolaMessage(e: unknown): string {
+  if (e instanceof NotConnectedError || e instanceof GranolaError) return e.message;
+  const msg = e instanceof Error ? e.message : String(e);
+  if (/fetch failed|ENOTFOUND|ECONNREFUSED|network/i.test(msg)) return "Couldn't reach Granola. Check your internet connection and try again.";
+  return `Granola sync didn't work: ${msg.slice(0, 300)}`;
+}
+
 export function createApp(deps: AppDeps) {
   const app = express();
+  const granola = deps.granola ?? new GranolaConnection(path.join(deps.dataDir, "granola-auth.json"));
+  const redirectFor = (req: express.Request) => `${req.protocol}://${req.get("host")}/api/granola/callback`;
+  let syncing = false;
   app.use(express.json({ limit: "1mb" }));
   app.use(express.static(path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "public")));
 
@@ -131,11 +144,54 @@ export function createApp(deps: AppDeps) {
     res.json(await runDoctor({ dataDir: deps.dataDir, notesDir: deps.notesDir, courses: loadRegistry(deps.dataDir), runner: deps.runner }, { deep: req.query.deep === "1" }));
   });
 
-  app.post("/api/sync", async (_req, res) => {
+  app.get("/api/granola/status", (_req, res) => res.json({ connected: granola.isConnected(), syncing }));
+
+  app.post("/api/granola/connect", async (req, res) => {
     try {
-      res.json(await runSync({ runner: deps.runner, notesDir: deps.notesDir, courses: loadRegistry(deps.dataDir) }));
+      res.json({ authUrl: await granola.startAuth(redirectFor(req)) });
     } catch (e) {
-      res.status(500).json({ error: friendlyError(e) });
+      res.status(500).json({ error: granolaMessage(e) });
+    }
+  });
+
+  app.get("/api/granola/callback", async (req, res) => {
+    const page = (ok: boolean, text: string) =>
+      res.status(ok ? 200 : 400).type("html").send(
+        `<!doctype html><meta charset="utf-8"><title>StudyDeck</title><body style="font:16px system-ui;display:grid;place-items:center;height:100vh;margin:0;background:#f8fafc;color:#1e293b">` +
+          `<div style="text-align:center"><div style="font-size:48px">${ok ? "✅" : "😕"}</div><h2>${text}</h2><p>You can close this tab and go back to StudyDeck.</p></div>` +
+          (ok ? `<script>setTimeout(() => window.close(), 1500)</script>` : ""),
+      );
+    if (req.query.error) return page(false, "Granola sign-in was cancelled");
+    try {
+      await granola.finishAuth(String(req.query.code ?? ""), req.query.state ? String(req.query.state) : undefined);
+      page(true, "Granola is connected");
+    } catch (e) {
+      page(false, e instanceof GranolaError ? e.message : "Couldn't finish connecting Granola");
+    }
+  });
+
+  app.post("/api/granola/disconnect", (_req, res) => {
+    granola.disconnect();
+    res.json({ ok: true });
+  });
+
+  /** Streams progress, then a final summary. Copies your whole semester's notes straight from Granola (no AI involved). */
+  app.post("/api/sync", async (req, res) => {
+    if (syncing) return res.status(409).json({ error: "A sync is already running." });
+    if (!granola.isConnected()) return res.status(409).json({ error: "Connect Granola first.", needsConnect: true });
+    syncing = true;
+    res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" });
+    const send = (event: string, data: unknown) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    try {
+      const result = await granola.withApi(redirectFor(req), (api) =>
+        runDirectSync({ api, notesDir: deps.notesDir, courses: loadRegistry(deps.dataDir), onProgress: (m) => send("progress", m) }),
+      );
+      send("done", result);
+    } catch (e) {
+      send("error", { message: granolaMessage(e), needsConnect: e instanceof NotConnectedError });
+    } finally {
+      syncing = false;
+      res.end();
     }
   });
 

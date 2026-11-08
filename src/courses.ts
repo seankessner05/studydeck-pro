@@ -23,10 +23,10 @@ export const UNSORTED: Course = { id: "unsorted", name: "Unsorted", profile: "ge
 
 /** Seed data: the starting course list, and the fixed list used by demo mode. */
 export const DEFAULT_COURSES: Course[] = [
-  { id: "ECON300", name: "Macroeconomics", semester: "Fall 2026", profile: "quant-econ", color: "indigo" },
-  { id: "ECON301", name: "Microeconomics", semester: "Fall 2026", profile: "quant-econ", color: "sky" },
-  { id: "ECON196", name: "Accounting", semester: "Fall 2026", profile: "accounting", color: "emerald" },
-  { id: "MGMT220", name: "Social Innovation", semester: "Fall 2026", profile: "general", color: "fuchsia" },
+  { id: "ECON300", granolaFolder: "Macroeconomics", name: "Macroeconomics", semester: "Fall 2026", profile: "quant-econ", color: "indigo" },
+  { id: "ECON301", granolaFolder: "Microeconomics", name: "Microeconomics", semester: "Fall 2026", profile: "quant-econ", color: "sky" },
+  { id: "ECON196", granolaFolder: "Accounting", name: "Accounting", semester: "Fall 2026", profile: "accounting", color: "emerald" },
+  { id: "MGMT220", granolaFolder: "Social Innovation", name: "Social Innovation", semester: "Fall 2026", profile: "general", color: "fuchsia" },
   { id: "CLUB", name: "Clubs", profile: "general", color: "amber" },
   { id: "EVENT", name: "Events", profile: "general", color: "teal" },
   { id: "ATHLETICS", name: "Athletics", profile: "general", color: "orange" },

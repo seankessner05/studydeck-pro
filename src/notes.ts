@@ -12,6 +12,8 @@ export interface Note {
   sample: boolean;
   body: string;
   granolaId?: string;
+  /** Granola's updated_at when this note was last copied, used to detect later edits. */
+  granolaUpdatedAt?: string;
 }
 
 export const NOTES_DIR = path.resolve(process.env.STUDYDECK_NOTES_DIR ?? "notes");
@@ -52,6 +54,7 @@ export function parseNote(course: string, file: string, raw: string): Note {
     sample: meta.sample === "true",
     body: body.trim(),
     granolaId: meta.granola_id || undefined,
+    granolaUpdatedAt: meta.granola_updated_at || undefined,
   };
 }
 
