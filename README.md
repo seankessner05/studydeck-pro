@@ -96,7 +96,7 @@ You need **Node 22.13+** (24 recommended) and **[Claude Code](https://claude.com
 
 ```bash
 # 1. Get the code
-git clone https://github.com/seankessner05/studydeck.git && cd studydeck
+git clone https://github.com/seankessner05/studydeck-pro.git && cd studydeck-pro
 
 # 2. Install
 npm install
