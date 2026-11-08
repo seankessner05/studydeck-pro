@@ -30,16 +30,16 @@
 
 **Click-by-click script.** Say the words in quotes; do the actions in bold.
 
-1. **Point at the sidebar.** "Every course is already here: 21 sample notes, routed into courses. No uploading. The yellow badge means I'm in demo mode with sample data."
-2. **Click `ECON300 Macroeconomics`.** "Now the chat only reads Macro notes."
+1. **Point at the sidebar.** "Every class is already here, filled from Granola with no uploading. The yellow badge means I'm in demo mode with sample data. And there's a Notes tab if you want to browse the lectures."
+2. **Click `Macroeconomics`.** "Now the chat only reads Macro notes."
 3. **Click the Try-asking chip "How does a tax rate change the spending multiplier?"** While it streams: "It's streaming from Claude, running locally through Claude Code."
-4. **Point at the blue chips.** "Every sentence has a citation: course, date, note."
-5. **Hover a chip.** "Hover shows the exact sentence from my notes it relied on."
-6. **Click the chip after the 2.5 example (any chip works).** "Click, and the original note opens, scrolled to and highlighting that passage. That's the receipt."
+4. **Point at the numbered circles.** "Every claim has a numbered citation, and the sources are listed underneath."
+5. **Hover a numbered circle.** "Hover shows the exact sentence from my notes it relied on."
+6. **Click a numbered circle (or a source under the answer).** "Click, and the original note opens, scrolled to and highlighting that passage. That's the receipt."
 7. **Press `Esc`. Click the Try-asking chip "What did we learn about the Solow growth model?"** "We haven't covered Solow yet, so watch."
 8. **Point at the black "Not in your notes" badge.** "It refuses to make it up. This is the feature I care most about. 'Not in your notes' is a real answer."
 9. **Tick "Use general knowledge" and ask the same question by typing it.** "If I *want* outside help, I opt in, and every outside sentence is labeled General knowledge, so I never confuse it with what my professor said."
-10. **Untick the toggle. Press `⌘K`, type `all`, press Enter.** "Keyboard shortcut to switch scope. Now across every course and club…"
+10. **Untick the toggle. Press `⌘K`, type `every`, press Enter.** "Keyboard shortcut to switch class. Now across everything…"
 11. **Click the Try-asking chip "What do I have coming up this week across classes and clubs?"** "…it pulls dated items from Athletics, Clubs and Macro, all cited."
 12. **(Optional, if time) Click 🌓** "And yes, there's a dark mode."
 

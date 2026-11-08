@@ -13,13 +13,13 @@ A local study assistant that answers questions about my class notes, cites every
 - AI study tools make me **upload** everything, and when my notes don't cover a topic they **fill the gap with general knowledge**, which is risky before an exam.
 
 ### The solution
-- **Knows my semester:** one click syncs the last 14 days of Granola meetings into course folders.
+- **Knows my semester:** a one-time Granola sign-in copies the whole semester into class folders (using my Granola folders) and keeps it fresh automatically.
 - **Cited, verified answers:** every claim links to its source note; the app checks each quoted passage word-for-word.
 - **Honest by default:** "Not in your notes" is a first-class answer; outside knowledge is opt-in and labeled.
 - **One click to the receipt:** the source opens scrolled to the exact highlighted passage.
 
 ### How it works
-Granola → `./notes/<course>/*.md` → keyword + recency retrieval → **Claude Code CLI** (`claude -p`, locked down: no tools, strict prompt) → citation validator → streamed to the browser.
+Granola (direct MCP connection) → `./notes/<course>/*.md` → keyword + recency retrieval → **Claude Code CLI** (`claude -p`, locked down: no tools, strict prompt) → citation validator → streamed to the browser.
 Node + TypeScript + Express · plain JS + Tailwind · local markdown files · no database, no API key.
 
 ### Results

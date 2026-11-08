@@ -14,154 +14,179 @@
     } catch {}
   </script>
 </head>
-<body class="h-dvh bg-slate-50 text-slate-800 antialiased dark:bg-slate-950 dark:text-slate-200">
+<body class="h-dvh overflow-hidden bg-paper font-sans text-ink-900 antialiased dark:bg-ink-900 dark:text-slate-100">
   <div class="flex h-full">
+
     <!-- Sidebar (desktop) -->
-    <aside class="hidden w-64 shrink-0 flex-col border-r border-slate-200 bg-white md:flex dark:border-slate-800 dark:bg-slate-900">
-      <div class="flex items-center gap-2.5 px-5 pt-5 pb-4">
-        <img src="/logo.svg" alt="" class="h-8 w-8" />
+    <aside class="hidden w-[288px] shrink-0 flex-col border-r border-slate-200/70 bg-white md:flex dark:border-ink-700 dark:bg-ink-800">
+      <div class="flex items-center gap-3 px-5 pt-6 pb-5">
+        <img src="/logo.svg" alt="" class="h-10 w-10 drop-shadow-sm" />
         <div>
-          <div class="text-[17px] font-bold tracking-tight">Study<span class="text-indigo-600 dark:text-indigo-400">Deck</span></div>
-          <div class="text-[11px] text-slate-500 dark:text-slate-400">Answers from your notes. Only.</div>
+          <div class="text-xl font-extrabold leading-none tracking-tight">Study<span class="text-brand-500">Deck</span></div>
+          <div class="mt-1 text-[11px] font-medium text-slate-400">Answers from your notes. Only.</div>
         </div>
       </div>
 
-      <div class="px-3 pb-2 text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500 flex items-center justify-between">
-        <span class="px-2">Courses</span>
+      <div class="flex items-center justify-between px-5 pb-2 text-[11px] font-extrabold uppercase tracking-wider text-slate-400">
+        <span>Your classes</span>
         <span class="flex items-center gap-1.5">
-          <button id="manageBtn" class="rounded px-1.5 text-[11px] font-medium normal-case tracking-normal text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800" title="Add or archive courses">Manage</button>
-          <kbd class="rounded border border-slate-200 px-1.5 font-sans text-[10px] font-medium text-slate-400 dark:border-slate-700">⌘K</kbd>
+          <button id="manageBtn" class="rounded-md px-1.5 py-0.5 text-[11px] font-bold normal-case tracking-normal text-slate-400 transition hover:bg-slate-100 hover:text-brand-600 dark:hover:bg-ink-700" title="Add, edit or archive classes">Edit</button>
+          <kbd class="rounded-md border border-slate-200 px-1.5 py-0.5 font-sans text-[10px] font-bold text-slate-400 dark:border-ink-600">⌘K</kbd>
         </span>
       </div>
-      <nav id="courses" class="flex-1 space-y-0.5 overflow-y-auto px-3"></nav>
+      <nav id="courses" class="flex-1 space-y-0.5 overflow-y-auto px-3 pb-3"></nav>
 
-      <div class="space-y-3 border-t border-slate-100 p-4 dark:border-slate-800">
-        <div id="streak" class="rounded-xl bg-gradient-to-br from-orange-50 to-amber-50 px-3 py-2.5 text-xs text-amber-900 dark:from-orange-500/10 dark:to-amber-500/10 dark:text-amber-200"></div>
-        <label class="flex cursor-pointer items-center justify-between text-xs text-slate-600 dark:text-slate-300">
-          <span><b class="font-semibold">Demo mode</b><span class="block text-[11px] text-slate-400">Use built-in sample notes</span></span>
-          <input id="demo" type="checkbox" class="peer sr-only" />
-          <span class="relative h-5 w-9 rounded-full bg-slate-200 transition peer-checked:bg-indigo-600 dark:bg-slate-700 after:absolute after:top-0.5 after:left-0.5 after:h-4 after:w-4 after:rounded-full after:bg-white after:shadow after:transition peer-checked:after:translate-x-4"></span>
-        </label>
-        <div class="flex gap-2">
-          <button id="syncBtn" class="flex-1 rounded-lg bg-slate-900 py-2 text-xs font-medium text-white transition hover:bg-slate-700 disabled:opacity-60 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-white">Sync from Granola</button>
-          <button class="theme-toggle rounded-lg border border-slate-200 px-2.5 text-sm transition hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800" title="Toggle dark mode" aria-label="Toggle dark mode">🌓</button>
-          <button id="doctorBtn" class="rounded-lg border border-slate-200 px-2.5 text-sm transition hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800" title="Doctor: check that everything is set up" aria-label="Open Doctor">🩺</button>
+      <div class="space-y-2.5 border-t border-slate-100 p-4 dark:border-ink-700">
+        <div id="streak" class="flex items-center gap-2 rounded-xl bg-gradient-to-r from-orange-50 to-amber-100 px-3 py-2 text-xs text-amber-900 dark:from-orange-500/15 dark:to-amber-500/10 dark:text-amber-200"></div>
+        <div id="granolaCard" class="rounded-2xl bg-brand-50 p-3 text-xs text-brand-900 dark:bg-brand-500/10 dark:text-brand-100"></div>
+        <div class="flex items-center justify-between gap-2">
+          <label class="flex min-w-0 flex-1 cursor-pointer items-center gap-2.5 text-xs text-slate-600 dark:text-slate-300">
+            <input id="demo" type="checkbox" class="peer sr-only" />
+            <span class="relative h-6 w-10 shrink-0 rounded-full bg-slate-200 transition peer-checked:bg-brand-500 dark:bg-ink-600 after:absolute after:top-0.5 after:left-0.5 after:h-5 after:w-5 after:rounded-full after:bg-white after:shadow after:transition peer-checked:after:translate-x-4"></span>
+            <span class="min-w-0"><b class="font-bold">Demo mode</b><span class="block truncate text-[11px] text-slate-400">Built-in sample notes</span></span>
+          </label>
+          <button class="theme-toggle grid h-9 w-9 place-items-center rounded-xl border border-slate-200 text-base transition hover:bg-slate-50 dark:border-ink-600 dark:hover:bg-ink-700" title="Toggle dark mode" aria-label="Toggle dark mode">🌓</button>
+          <button id="doctorBtn" class="grid h-9 w-9 place-items-center rounded-xl border border-slate-200 text-base transition hover:bg-slate-50 dark:border-ink-600 dark:hover:bg-ink-700" title="Doctor: check that everything is set up" aria-label="Open Doctor">🩺</button>
         </div>
-        <div id="syncStatus" class="hidden max-h-36 overflow-y-auto whitespace-pre-wrap rounded-lg bg-slate-50 p-2 text-[11px] text-slate-600 dark:bg-slate-800 dark:text-slate-300"></div>
       </div>
     </aside>
 
-    <!-- Chat -->
+    <!-- Main -->
     <main class="flex min-w-0 flex-1 flex-col">
-      <header class="flex items-center justify-between gap-3 border-b border-slate-200 bg-white/80 px-4 py-3 backdrop-blur md:px-6 dark:border-slate-800 dark:bg-slate-900/80">
-        <div class="flex min-w-0 items-center gap-3">
-          <img src="/logo.svg" alt="StudyDeck" class="h-7 w-7 md:hidden" />
-          <button id="scopeBtn" class="min-w-0 text-left" title="Switch course (⌘K)">
-            <div class="flex items-center gap-2">
-              <span id="scopeDot" class="h-2.5 w-2.5 shrink-0 rounded-full bg-slate-400"></span>
-              <span id="scopeTitle" class="truncate font-semibold">All courses</span>
-              <span class="text-slate-400 md:hidden">▾</span>
-            </div>
-            <div id="scopeSub" class="truncate text-xs text-slate-500 dark:text-slate-400"></div>
+      <header class="shrink-0 px-4 pt-4 md:px-8 md:pt-6">
+        <div class="flex items-center gap-3 md:gap-4">
+          <img src="/logo.svg" alt="StudyDeck" class="h-9 w-9 md:hidden" />
+          <button id="scopeBtn" class="flex min-w-0 flex-1 items-center gap-3 text-left" title="Switch class (⌘K)">
+            <span id="heroIcon" class="grid h-12 w-12 shrink-0 place-items-center rounded-2xl text-2xl md:h-14 md:w-14 md:text-3xl"></span>
+            <span class="min-w-0">
+              <span class="flex items-center gap-2">
+                <span id="scopeTitle" class="truncate text-xl font-extrabold tracking-tight md:text-3xl">Everything</span>
+                <span class="text-slate-400 md:hidden">▾</span>
+              </span>
+              <span id="scopeSub" class="block truncate text-xs font-medium text-slate-500 md:text-sm dark:text-slate-400"></span>
+            </span>
           </button>
+          <span id="sourceBadge" class="hidden shrink-0 rounded-full bg-sun/30 px-3 py-1 text-[11px] font-extrabold text-amber-800 dark:bg-sun/15 dark:text-sun"></span>
+          <button class="theme-toggle rounded-xl px-2 py-1 text-base md:hidden" aria-label="Toggle dark mode">🌓</button>
         </div>
-        <div class="flex shrink-0 items-center gap-2">
-          <span id="sourceBadge" class="hidden rounded-full bg-amber-100 px-2.5 py-0.5 text-[11px] font-semibold text-amber-800 dark:bg-amber-500/15 dark:text-amber-300">Sample notes</span>
-          <button class="theme-toggle rounded-lg px-2 py-1 text-sm md:hidden" aria-label="Toggle dark mode">🌓</button>
-          <button id="clearBtn" class="rounded-lg px-2 py-1 text-xs text-slate-500 transition hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/10">Clear</button>
+
+        <div role="tablist" class="mt-4 flex items-end justify-between border-b border-slate-200/80 dark:border-ink-700">
+          <div class="flex gap-1">
+            <button role="tab" data-view="chat" class="tab -mb-px border-b-[3px] px-4 py-2.5 text-sm font-bold transition">💬 Chat</button>
+            <button role="tab" data-view="notes" class="tab -mb-px border-b-[3px] px-4 py-2.5 text-sm font-bold transition">📚 Notes <span id="notesCount" class="ml-1 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-extrabold text-slate-500 dark:bg-ink-700 dark:text-slate-300"></span></button>
+          </div>
+          <button id="clearBtn" class="mb-1.5 rounded-lg px-2.5 py-1 text-xs font-semibold text-slate-400 transition hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/10">Clear chat</button>
         </div>
       </header>
 
-      <div id="messages" class="flex-1 space-y-5 overflow-y-auto px-4 py-6 md:px-8"></div>
+      <!-- Chat -->
+      <section id="chatView" class="flex min-h-0 flex-1 flex-col">
+        <div id="messages" class="min-h-0 flex-1 overflow-y-auto px-4 py-6 md:px-8"></div>
+        <form id="form" class="shrink-0 px-4 pt-1 pb-4 md:px-8 md:pb-6">
+          <div class="mx-auto max-w-3xl">
+            <div id="tryRow" class="no-scrollbar mb-3 hidden gap-2 overflow-x-auto"></div>
+            <div class="flex items-center gap-2 rounded-2xl bg-white p-2 pl-5 shadow-card ring-1 ring-slate-200 transition focus-within:ring-2 focus-within:ring-brand-500 dark:bg-ink-800 dark:ring-ink-600">
+              <input id="q" autocomplete="off" placeholder="Ask anything about your notes…" enterkeyhint="send"
+                class="min-w-0 flex-1 bg-transparent py-2 text-[15px] placeholder:text-slate-400 focus:outline-none" />
+              <button id="send" class="flex h-11 min-w-[5.5rem] items-center justify-center rounded-xl bg-brand-500 px-5 text-sm font-extrabold text-white shadow-sm transition hover:bg-brand-600 active:scale-95 disabled:opacity-60">
+                <span id="sendLabel">Ask</span>
+              </button>
+            </div>
+            <div class="mt-2.5 flex flex-wrap items-center justify-between gap-2 px-1">
+              <label class="inline-flex cursor-pointer items-center gap-2 text-xs font-medium text-slate-500 select-none dark:text-slate-400">
+                <input id="general" type="checkbox" class="h-4 w-4 rounded accent-amber-500" />
+                <span>Use general knowledge <span class="text-slate-400 dark:text-slate-500">(outside info is labeled)</span></span>
+              </label>
+              <span class="hidden text-[11px] text-slate-400 sm:inline"><kbd class="font-sans font-bold">Enter</kbd> send · <kbd class="font-sans font-bold">⌘K</kbd> switch class · <kbd class="font-sans font-bold">/</kbd> focus</span>
+            </div>
+          </div>
+        </form>
+      </section>
 
-      <form id="form" class="border-t border-slate-200 bg-white px-4 pt-3 pb-4 md:px-8 dark:border-slate-800 dark:bg-slate-900">
-        <div id="tryRow" class="no-scrollbar mb-3 hidden gap-2 overflow-x-auto"></div>
-        <div class="flex gap-2">
-          <input id="q" autocomplete="off" placeholder="Ask about your notes…" enterkeyhint="send"
-            class="min-w-0 flex-1 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm shadow-sm transition placeholder:text-slate-400 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/15 focus:outline-none dark:border-slate-700 dark:bg-slate-800" />
-          <button id="send" class="flex items-center gap-2 rounded-xl bg-indigo-600 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-500 active:scale-95 disabled:opacity-60">
-            <span id="sendLabel">Ask</span>
-          </button>
+      <!-- Notes -->
+      <section id="notesView" class="hidden min-h-0 flex-1 flex-col">
+        <div class="shrink-0 px-4 pt-5 md:px-8">
+          <div class="relative max-w-md">
+            <span class="pointer-events-none absolute top-1/2 left-4 -translate-y-1/2 text-slate-400">🔍</span>
+            <input id="notesSearch" placeholder="Search these notes…" autocomplete="off"
+              class="w-full rounded-2xl bg-white py-2.5 pr-4 pl-11 text-sm shadow-card ring-1 ring-slate-200 placeholder:text-slate-400 focus:ring-2 focus:ring-brand-500 focus:outline-none dark:bg-ink-800 dark:ring-ink-600" />
+          </div>
         </div>
-        <div class="mt-2 flex flex-wrap items-center justify-between gap-2">
-          <label class="inline-flex cursor-pointer items-center gap-2 text-xs text-slate-600 select-none dark:text-slate-400">
-            <input id="general" type="checkbox" class="h-3.5 w-3.5 accent-amber-500" />
-            <span>Use general knowledge <span class="text-slate-400 dark:text-slate-500">(outside info is labeled)</span></span>
-          </label>
-          <span class="hidden text-[11px] text-slate-400 sm:inline"><kbd>Enter</kbd> to send · <kbd>⌘K</kbd> switch course · <kbd>/</kbd> focus</span>
-        </div>
-      </form>
+        <div id="notesGrid" class="grid min-h-0 flex-1 content-start gap-4 overflow-y-auto px-4 py-5 sm:grid-cols-2 md:px-8 xl:grid-cols-3"></div>
+      </section>
     </main>
 
     <!-- Source panel: side panel on desktop, full-screen sheet on phones -->
-    <aside id="source" class="fixed inset-0 z-30 hidden flex-col bg-white md:static md:z-auto md:w-[28rem] md:shrink-0 md:border-l md:border-slate-200 dark:bg-slate-900 dark:md:border-slate-800">
-      <div class="flex items-start justify-between gap-2 border-b border-slate-100 px-5 py-3 dark:border-slate-800">
+    <aside id="source" class="fixed inset-y-0 right-0 z-30 hidden w-full max-w-[30rem] flex-col bg-white shadow-pop min-[1440px]:static min-[1440px]:z-auto min-[1440px]:w-[30rem] min-[1440px]:shrink-0 min-[1440px]:border-l min-[1440px]:border-slate-200/70 min-[1440px]:shadow-none dark:bg-ink-800 dark:min-[1440px]:border-ink-700">
+      <div class="flex items-start justify-between gap-3 border-b border-slate-100 px-5 py-4 dark:border-ink-700">
         <div class="min-w-0">
-          <div class="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Source note</div>
-          <div id="sourceTitle" class="truncate text-sm font-semibold"></div>
+          <div class="text-[11px] font-extrabold uppercase tracking-wider text-slate-400">Source note</div>
+          <div id="sourceTitle" class="mt-0.5 text-sm font-bold leading-snug"></div>
+          <label id="moveWrap" class="mt-2 hidden items-center gap-2 text-xs text-slate-500">
+            <span>Class:</span>
+            <select id="moveSelect" class="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-semibold dark:border-ink-600 dark:bg-ink-700"></select>
+          </label>
         </div>
-        <button id="closeSource" class="rounded-lg px-2 text-xl leading-none text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800" aria-label="Close source">×</button>
+        <button id="closeSource" class="rounded-lg px-2 text-2xl leading-none text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-ink-700" aria-label="Close source">×</button>
       </div>
-      <div id="sourceBody" class="md flex-1 overflow-y-auto px-5 py-3 text-sm"></div>
+      <div id="sourceBody" class="md min-h-0 flex-1 overflow-y-auto px-5 py-4 text-sm"></div>
     </aside>
   </div>
 
-  <!-- Course picker (⌘K, and the course menu on phones) -->
-  <div id="picker" class="fixed inset-0 z-40 hidden items-start justify-center bg-slate-900/40 p-4 pt-[12vh] backdrop-blur-sm">
-    <div class="fade-in w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-2xl ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-700">
-      <input id="pickerInput" placeholder="Switch course…" class="w-full border-b border-slate-100 bg-transparent px-4 py-3 text-sm focus:outline-none dark:border-slate-800" />
+  <!-- Class picker (⌘K, and the class menu on phones) -->
+  <div id="picker" class="fixed inset-0 z-40 hidden items-start justify-center bg-ink-900/50 p-4 pt-[12vh] backdrop-blur-sm">
+    <div class="pop w-full max-w-md overflow-hidden rounded-3xl bg-white shadow-pop ring-1 ring-slate-200 dark:bg-ink-800 dark:ring-ink-600">
+      <input id="pickerInput" placeholder="Jump to a class…" class="w-full border-b border-slate-100 bg-transparent px-5 py-4 text-sm font-medium focus:outline-none dark:border-ink-700" />
       <div id="pickerList" class="max-h-80 overflow-y-auto p-2"></div>
-      <div class="flex items-center justify-between border-t border-slate-100 px-4 py-2 text-[11px] text-slate-400 dark:border-slate-800">
-        <span>↑↓ to move · Enter to select · Esc to close</span>
-        <label class="flex items-center gap-1.5 md:hidden"><input id="demoMobile" type="checkbox" class="accent-indigo-600" /> Demo mode</label>
+      <div class="flex items-center justify-between border-t border-slate-100 px-5 py-2.5 text-[11px] text-slate-400 dark:border-ink-700">
+        <span>↑↓ move · Enter select · Esc close</span>
+        <label class="flex items-center gap-1.5 md:hidden"><input id="demoMobile" type="checkbox" class="accent-brand-500" /> Demo mode</label>
       </div>
     </div>
   </div>
 
-
-  <!-- Manage courses -->
-  <div id="manage" class="fixed inset-0 z-40 hidden items-start justify-center bg-slate-900/40 p-4 pt-[8vh] backdrop-blur-sm">
-    <div class="fade-in w-full max-w-lg overflow-hidden rounded-2xl bg-white shadow-2xl ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-700">
-      <div class="flex items-center justify-between border-b border-slate-100 px-5 py-3 dark:border-slate-800">
-        <div class="font-semibold">Manage courses</div>
-        <button id="closeManage" class="rounded-lg px-2 text-xl leading-none text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800" aria-label="Close">×</button>
+  <!-- Manage classes -->
+  <div id="manage" class="fixed inset-0 z-40 hidden items-start justify-center bg-ink-900/50 p-4 pt-[8vh] backdrop-blur-sm">
+    <div class="pop w-full max-w-lg overflow-hidden rounded-3xl bg-white shadow-pop ring-1 ring-slate-200 dark:bg-ink-800 dark:ring-ink-600">
+      <div class="flex items-center justify-between border-b border-slate-100 px-6 py-4 dark:border-ink-700">
+        <div class="text-lg font-extrabold">Your classes</div>
+        <button id="closeManage" class="rounded-lg px-2 text-2xl leading-none text-slate-400 hover:bg-slate-100 dark:hover:bg-ink-700" aria-label="Close">×</button>
       </div>
-      <div id="manageNote" class="hidden bg-amber-50 px-5 py-2 text-xs text-amber-800 dark:bg-amber-500/10 dark:text-amber-300">Demo mode uses a fixed set of sample courses. Turn it off to manage your own.</div>
+      <div id="manageNote" class="hidden bg-sun/25 px-6 py-2 text-xs font-medium text-amber-900 dark:text-sun">Demo mode uses a fixed set of sample classes. Turn it off to manage your own.</div>
       <div id="manageList" class="max-h-72 overflow-y-auto p-2"></div>
-      <form id="manageForm" class="space-y-2 border-t border-slate-100 p-4 dark:border-slate-800">
-        <div class="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Add a course</div>
+      <form id="manageForm" class="space-y-2 border-t border-slate-100 p-5 dark:border-ink-700">
+        <div class="text-[11px] font-extrabold uppercase tracking-wider text-slate-400">Add a class</div>
         <div class="grid grid-cols-3 gap-2">
-          <input id="courseId" required placeholder="Code (FIN310)" maxlength="20" class="rounded-lg border border-slate-300 bg-transparent px-3 py-2 text-sm dark:border-slate-700" />
-          <input id="courseName" required placeholder="Name" maxlength="60" class="col-span-2 rounded-lg border border-slate-300 bg-transparent px-3 py-2 text-sm dark:border-slate-700" />
-          <input id="courseSemester" placeholder="Semester" maxlength="40" class="rounded-lg border border-slate-300 bg-transparent px-3 py-2 text-sm dark:border-slate-700" />
-          <select id="profile" class="col-span-2 rounded-lg border border-slate-300 bg-transparent px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900"></select>
+          <input id="courseId" required placeholder="Code (FIN310)" maxlength="20" class="rounded-xl border border-slate-200 bg-transparent px-3 py-2 text-sm dark:border-ink-600" />
+          <input id="courseName" required placeholder="Name" maxlength="60" class="col-span-2 rounded-xl border border-slate-200 bg-transparent px-3 py-2 text-sm dark:border-ink-600" />
+          <input id="courseSemester" placeholder="Semester" maxlength="40" class="rounded-xl border border-slate-200 bg-transparent px-3 py-2 text-sm dark:border-ink-600" />
+          <select id="profile" class="col-span-2 rounded-xl border border-slate-200 bg-transparent px-3 py-2 text-sm dark:border-ink-600 dark:bg-ink-800"></select>
         </div>
         <div class="flex items-center justify-between">
           <span id="manageError" class="text-xs text-red-600 dark:text-red-400"></span>
-          <button class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500">Add course</button>
+          <button class="rounded-xl bg-brand-500 px-5 py-2 text-sm font-extrabold text-white hover:bg-brand-600">Add class</button>
         </div>
       </form>
     </div>
   </div>
 
-
   <!-- Doctor -->
-  <div id="doctor" class="fixed inset-0 z-40 hidden items-start justify-center bg-slate-900/40 p-4 pt-[8vh] backdrop-blur-sm">
-    <div class="fade-in w-full max-w-xl overflow-hidden rounded-2xl bg-white shadow-2xl ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-700">
-      <div class="flex items-center justify-between border-b border-slate-100 px-5 py-3 dark:border-slate-800">
-        <div><div class="font-semibold">Doctor</div><div id="doctorSummary" class="text-xs text-slate-500 dark:text-slate-400">Checking…</div></div>
-        <button id="closeDoctor" class="rounded-lg px-2 text-xl leading-none text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800" aria-label="Close">×</button>
+  <div id="doctor" class="fixed inset-0 z-40 hidden items-start justify-center bg-ink-900/50 p-4 pt-[8vh] backdrop-blur-sm">
+    <div class="pop w-full max-w-xl overflow-hidden rounded-3xl bg-white shadow-pop ring-1 ring-slate-200 dark:bg-ink-800 dark:ring-ink-600">
+      <div class="flex items-center justify-between border-b border-slate-100 px-6 py-4 dark:border-ink-700">
+        <div><div class="text-lg font-extrabold">Doctor</div><div id="doctorSummary" class="text-xs font-medium text-slate-500 dark:text-slate-400">Checking…</div></div>
+        <button id="closeDoctor" class="rounded-lg px-2 text-2xl leading-none text-slate-400 hover:bg-slate-100 dark:hover:bg-ink-700" aria-label="Close">×</button>
       </div>
-      <div id="doctorList" class="max-h-[60vh] divide-y divide-slate-100 overflow-y-auto dark:divide-slate-800"></div>
-      <div class="flex justify-end gap-2 border-t border-slate-100 p-3 dark:border-slate-800">
-        <button id="doctorAgain" class="rounded-lg border border-slate-200 px-3 py-1.5 text-xs hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800">Run again</button>
-        <button id="doctorDeep" class="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-700 dark:bg-slate-100 dark:text-slate-900" title="Also asks Claude one tiny question to prove it can answer">Deep check</button>
+      <div id="doctorList" class="max-h-[60vh] divide-y divide-slate-100 overflow-y-auto dark:divide-ink-700"></div>
+      <div class="flex justify-end gap-2 border-t border-slate-100 p-4 dark:border-ink-700">
+        <button id="doctorAgain" class="rounded-xl border border-slate-200 px-4 py-2 text-xs font-bold hover:bg-slate-50 dark:border-ink-600 dark:hover:bg-ink-700">Run again</button>
+        <button id="doctorDeep" class="rounded-xl bg-ink-900 px-4 py-2 text-xs font-bold text-white hover:bg-ink-700 dark:bg-slate-100 dark:text-ink-900" title="Also asks Claude one tiny question to prove it can answer">Deep check</button>
       </div>
     </div>
   </div>
 
   <!-- Citation hover preview -->
-  <div id="preview" class="pointer-events-none fixed z-50 hidden max-w-sm rounded-xl bg-slate-900 px-3.5 py-2.5 text-xs leading-relaxed text-slate-100 shadow-xl dark:bg-slate-100 dark:text-slate-900"></div>
+  <div id="preview" class="pointer-events-none fixed z-50 hidden max-w-sm rounded-2xl bg-ink-900 px-4 py-3 text-xs leading-relaxed text-slate-100 shadow-pop dark:bg-white dark:text-ink-900"></div>
 
   <script src="/app.js"></script>
 </body>

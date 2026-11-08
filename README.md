@@ -23,34 +23,39 @@ I tried AI study tools, and two things kept bugging me:
 1. **Uploading.** Every tool wanted me to export, upload and organize files. My notes already exist; I wanted a tool that already knows my semester.
 2. **Confident guessing.** When my notes didn't cover something, chatbots filled the gap with general knowledge that sounded like my professor but wasn't. Before an exam, I need to know what *was* covered.
 
-StudyDeck fixes both. It syncs my Granola notes into course folders automatically, and it answers **only** from those notes. Every claim carries a citation, and **"Not in your notes"** is a perfectly good answer.
+StudyDeck fixes both. It copies my Granola notes straight into class folders (using the folders I already made in Granola), keeps them up to date by itself, and answers **only** from those notes. Every claim carries a citation, and **"Not in your notes"** is a perfectly good answer.
 
 ## Features
 
-- 📚 **Course-aware chat.** Pick a course (or All courses) in the sidebar and the chat only reads that course's notes.
-- 🧾 **Cited, verified answers.** Every claim is cited as `[ECON300 2026-10-14: Fiscal Multipliers | "quote"]`. The server checks that each cited note was actually provided and that the quote appears word-for-word; anything that fails shows up as a red ⚠ chip.
+- 📚 **Class-aware chat.** Pick a class (or Everything) in the sidebar and the chat only reads that class's notes.
+- 🧾 **Cited, verified answers.** Each claim carries a numbered citation. The server checks that every cited note was actually provided and that the quote appears word-for-word; anything that fails turns into a red `!`.
+- ✂️ **Short answers.** The answer comes first, in a few lines, with a sources row underneath. It doesn't retell your whole note.
 - 🔎 **"Not in your notes" is first-class.** The model is told not to fill gaps. Outside knowledge is opt-in with a clearly labeled toggle, and every outside sentence is tagged 🌐 General knowledge.
-- 👀 **Click or hover any citation.** Hover for a preview of the exact passage; click to open the note scrolled to it, highlighted.
-- 🔄 **One-click Granola sync.** Pulls the last 14 days of meetings, routes each to the right course (by title prefix, or Claude's best guess from the content), skips duplicates, and moves previously unsorted notes once it knows where they go.
-- ⚡ **Streaming answers** with a live typing cursor.
+- 👀 **Hover or click any citation.** Hover for the exact passage; click to open the note scrolled to it and highlighted.
+- 🔗 **Direct Granola connection.** Sign in to Granola once. StudyDeck then copies your whole semester of notes exactly as Granola has them (no AI in the middle), files them by your Granola folders, picks up notes you edit later, and re-syncs in the background every 30 minutes.
+- 📚 **Notes browser.** Every class has a Notes tab: cards by date with previews and search.
+- 📥 **Inbox.** Notes that aren't in a Granola folder land in the Inbox, where you file each under a class with one click.
 - 🎬 **Demo mode** with 21 built-in sample notes, so a demo never depends on live sync or your private notes.
-- ⌨️ **Keyboard first:** `Enter` to send, `⌘K` to switch course, `/` to focus, `Esc` to close.
+- ⌨️ **Keyboard first:** `Enter` to send, `⌘K` to switch class, `/` to focus, `Esc` to close.
 - 🌙 **Dark mode**, 📱 **phone layout**, and a 🔥 **study streak** to keep you coming back.
-- 🔒 **Local and private.** Notes are markdown files on your machine. No database, no API keys, no cloud storage.
+- 🩺 **Doctor.** One screen (or `npm run doctor`) checks your setup and says how to fix anything.
+- 🔒 **Local and private.** Notes are markdown files on your machine. No database server, no API keys, no cloud storage.
 
-| Not in your notes (honesty by default) | Hover preview, dark mode |
+| Notes browser | Dark mode |
 |---|---|
-| ![StudyDeck answering "Not in your notes" for the Solow model](docs/screenshot-not-in-notes.png) | ![Hovering a citation shows the cited passage](docs/screenshot-dark-preview.png) |
+| ![Notes browser: one card per lecture](docs/screenshot-notes.png) | ![Dark mode](docs/screenshot-dark-preview.png) |
 
-| Empty state with "Try asking" | Phone |
+| "Not in your notes" (honesty by default) | Empty state with "Try asking" |
 |---|---|
-| ![Empty state with suggested questions](docs/screenshot-empty.png) | <img src="docs/screenshot-mobile.png" width="260" alt="StudyDeck on a phone-width screen" /> |
+| ![StudyDeck answering "Not in your notes" for the Solow model](docs/screenshot-not-in-notes.png) | ![Empty state with suggested questions](docs/screenshot-empty.png) |
+
+<p align="center"><img src="docs/screenshot-mobile.png" width="260" alt="StudyDeck on a phone-width screen" /></p>
 
 ## How it works
 
 ```mermaid
 flowchart TB
-    G[("Granola<br/>meeting notes")] -- "claude -p + Granola MCP<br/>(npm run sync / Sync button)" --> N["./notes/COURSE/<br/>YYYY-MM-DD_topic.md"]
+    G[("Granola<br/>meeting notes")] -- "direct MCP connection (OAuth)<br/>every 30 min + Sync button" --> N["./notes/COURSE/<br/>YYYY-MM-DD_topic.md"]
     S["./sample-notes<br/>(demo + fallback)"] --> R
     N --> R["Retrieval<br/>all notes if they fit,<br/>else keyword + recency"]
     U(["You, in the browser"]) -- question + course --> W["Express server<br/>localhost:3000"]
@@ -61,7 +66,7 @@ flowchart TB
     W <--> H[("./data/chats.json<br/>history per course")]
 ```
 
-1. **Sync.** `claude -p` runs with only Granola's `list_meetings` and `get_meetings` tools allowed. It returns JSON; my code (not the model) decides file names, dedupes by Granola meeting id, and writes markdown into `./notes/<course>/`.
+1. **Sync.** StudyDeck signs in to Granola's MCP server itself (OAuth with PKCE; the login is stored in `./data`, readable only by you). It lists your last 120 days of meetings, reads them in batches of ten, and writes each as markdown into `./notes/<class>/`. The class comes from the meeting's Granola folder, then a class code or keyword in the title, else the Inbox. Notes are matched by Granola id, so re-running never duplicates, and notes you edit in Granola are refreshed. No AI is involved, so it's fast, exact, and uses none of your Claude plan.
 2. **Retrieve.** If a course's notes fit comfortably in context (about 200k characters) they're all sent. Otherwise notes are ranked by keyword overlap plus a recency boost. The UI always says which notes were read.
 3. **Answer.** The server spawns `claude -p` in a locked-down mode: no tools, no MCP servers, no user settings or `CLAUDE.md`, no saved session. That keeps each call to about 2.5k tokens of overhead instead of about 60k. Notes are wrapped in `<note>` tags and marked as data, not instructions.
 4. **Verify.** Every citation is parsed and checked against the notes that were sent. The answer streams to the browser over Server-Sent Events.
@@ -99,21 +104,17 @@ npm install
 # 3. Run, then open http://localhost:3000
 npm start
 
-# 4. (Optional) Connect Granola, then click "Sync from Granola" or run: npm run sync
-claude mcp list   # look for a connected Granola server
+# 4. In the app, click "Connect Granola" in the sidebar and sign in once.
+#    Your whole semester syncs, then keeps itself fresh.
 ```
 
-If Granola isn't listed, add it and log in:
+Until you connect, StudyDeck uses the 21 sample notes in `./sample-notes`. Flip **Demo mode** in the sidebar to use the samples even after you have real notes.
 
-```bash
-claude mcp add --transport http granola https://mcp.granola.ai/mcp
-```
+**Match your Granola folders to your classes.** A class picks up notes from the Granola folder with the same name (a folder called "Macroeconomics" feeds the class named Macroeconomics). Add your own classes with **Edit** in the sidebar.
 
-Then run `/mcp` inside Claude Code to authenticate.
+Prefer the terminal? `npm run sync` does the same sync (and falls back to a slower Claude-based sync of the last 14 days if Granola isn't connected yet).
 
-Until you sync, StudyDeck uses the 21 sample notes in `./sample-notes`. Flip **Demo mode** in the sidebar to use the samples even after you have real notes.
-
-**Scripts:** `npm start` (build CSS + run), `npm run dev` (auto-reload), `npm run sync`, `npm run doctor` (checks your setup and says how to fix anything), `npm run eval` (regression questions against the sample notes), `npm test`, `npm run typecheck`. Set `PORT` to change the port.
+**Scripts:** `npm start` (build CSS + run), `npm run dev` (auto-reload), `npm run sync`, `npm run doctor` (checks your setup and says how to fix anything), `npm run eval` (19 regression questions against the sample notes), `npm test`, `npm run typecheck`. Set `PORT` to change the port.
 
 ### Note format
 
@@ -130,38 +131,38 @@ granola_id: abc123
 ...your notes...
 ```
 
-Name meetings in Granola with a course prefix (`ECON300 Fiscal policy`) for perfect routing; otherwise Claude guesses from the content, and anything uncertain goes to `./notes/unsorted`.
+Notes that aren't in a mapped Granola folder land in the Inbox (`./notes/unsorted`), where you can file them under a class. Naming a meeting with a class code (`ECON300 Fiscal policy`) also routes it automatically.
 
 ## Privacy
 
-- `./notes` (your real notes), `./data` (chat history and settings) and `.env*` are git-ignored. Only the fictional sample notes are in this repo.
+- `./notes` (your real notes), `./data` (chat history, settings, and your Granola login) and `.env*` are git-ignored. Only the fictional sample notes are in this repo. The Granola login file is created readable by you only.
 - Notes are sent to Claude through your own Claude Code login, the same as if you pasted them into Claude yourself. Nothing else leaves your machine.
 - The server listens on `127.0.0.1` only.
 
 ## Roadmap
 
-**What makes it better than NotebookLM, next:**
+The goal: a Quizlet-meets-NotebookLM study partner that knows your whole semester.
 
-- 🃏 **Exam mode.** Flashcards, practice quizzes and a one-page cheat sheet per course, all cited back to your notes.
-- 🎯 **Weak-spot tracking.** Remember which concepts you miss on quizzes and prioritize them.
-- 🧭 **Gap check.** Compare a course's notes against the syllabus and flag topics you may have missed.
-- 🗂 **Move notes in the app.** Fix a mis-routed note with one click.
-- 🧠 **Semantic retrieval** (local embeddings) for very large semesters.
-- 📄 **More sources:** PDFs and slide decks alongside Granola notes.
+- 📖 **Source library.** Add or remove anything at any time: textbook chapters (PDF or pasted), syllabi, past exams, slides, YouTube transcripts, web pages. Everything becomes searchable and cited with page numbers or timestamps.
+- 🧭 **Where am I.** Combine the syllabus, your Canvas calendar and your lecture notes into a per-class "this week, covered so far, due next" view, plus a gap check for topics you may have missed.
+- 🃏 **Study mode.** Flashcards with spaced repetition, quizzes, and original practice problems in your professor's style, each solved and re-checked independently before you see it.
+- 🎯 **Weak-spot tracking** and an **exam mode**: a one-page cheat sheet and a mock exam scoped to what's been covered.
+- 🧠 **Semantic search** (local) for very large semesters.
 
 ## Limitations (honestly)
 
-- **Needs Claude Code.** Every question runs the `claude` CLI on your machine and counts against your Claude plan. Answers take about 3 to 15 seconds.
-- **Keyword retrieval.** When a course outgrows the context budget, ranking is keyword + recency, not semantic, so a question phrased very differently from the notes can miss.
+- **Needs Claude Code.** Every question runs the `claude` CLI on your machine and counts against your Claude plan. Answers take about 3 to 15 seconds. (Syncing Granola does not use Claude.)
+- **Granola summaries, not transcripts.** Sync copies Granola's AI-enhanced notes plus anything you typed yourself. Full transcripts aren't synced yet.
+- **The direct Granola connection is new.** If it ever misbehaves, `npm run sync -- --via-claude` is the slower fallback.
+- **Keyword retrieval.** When a class outgrows the context budget, ranking is keyword + recency, not semantic, so a question phrased very differently from the notes can miss.
 - **Citation checks have limits.** They catch invented notes and invented quotes, but not a real quote attached to a claim it doesn't fully support.
-- **Sync relies on the model to copy notes verbatim.** It's instructed not to rewrite, but it's still an LLM in the loop. Course guessing for unprefixed titles can be wrong; in my first real sync, one of 11 notes (a "monopoly project" meeting) went to Accounting when I would have expected Microeconomics. There's no in-app way to move a note yet (move the file by hand).
-- **Short memory.** Follow-up questions see only the last 6 messages of that course's chat.
+- **Short memory.** Follow-up questions see only the last 6 messages of that class's chat.
 - **Single user, single machine.** Tested on macOS with Chrome; not tested on Windows.
 
 ## Development
 
 ```bash
-npm test          # 77 tests: notes, retrieval, citations, prompts, sync, course registry, migrations, doctor, API
+npm test          # 103 tests: notes, retrieval, citations, prompts, Granola parsing and sync, class registry, migrations, doctor, API
 npm run eval      # 19 real questions to Claude; reports regressions vs. the last run (needs a Claude login)
 npm run typecheck
 ```

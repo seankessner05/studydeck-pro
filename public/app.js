@@ -1,26 +1,31 @@
 // StudyDeck front end: plain JS, no build step.
 const $ = (id) => document.getElementById(id);
-const state = { course: "all", courses: [], profiles: [], editable: false, total: 0, source: "samples", demo: false, streak: 0, busy: false };
-
-// Course colors come from the registry (a palette name per course). Full class names so Tailwind keeps them.
-const PALETTE_CLASSES = {
-  indigo: { dot: "bg-indigo-500", chip: "bg-indigo-50 text-indigo-700 ring-indigo-200 hover:bg-indigo-100 dark:bg-indigo-500/15 dark:text-indigo-300 dark:ring-indigo-500/30" },
-  sky: { dot: "bg-sky-500", chip: "bg-sky-50 text-sky-700 ring-sky-200 hover:bg-sky-100 dark:bg-sky-500/15 dark:text-sky-300 dark:ring-sky-500/30" },
-  emerald: { dot: "bg-emerald-500", chip: "bg-emerald-50 text-emerald-700 ring-emerald-200 hover:bg-emerald-100 dark:bg-emerald-500/15 dark:text-emerald-300 dark:ring-emerald-500/30" },
-  fuchsia: { dot: "bg-fuchsia-500", chip: "bg-fuchsia-50 text-fuchsia-700 ring-fuchsia-200 hover:bg-fuchsia-100 dark:bg-fuchsia-500/15 dark:text-fuchsia-300 dark:ring-fuchsia-500/30" },
-  amber: { dot: "bg-amber-500", chip: "bg-amber-50 text-amber-800 ring-amber-200 hover:bg-amber-100 dark:bg-amber-500/15 dark:text-amber-300 dark:ring-amber-500/30" },
-  teal: { dot: "bg-teal-500", chip: "bg-teal-50 text-teal-700 ring-teal-200 hover:bg-teal-100 dark:bg-teal-500/15 dark:text-teal-300 dark:ring-teal-500/30" },
-  orange: { dot: "bg-orange-500", chip: "bg-orange-50 text-orange-700 ring-orange-200 hover:bg-orange-100 dark:bg-orange-500/15 dark:text-orange-300 dark:ring-orange-500/30" },
-  rose: { dot: "bg-rose-500", chip: "bg-rose-50 text-rose-700 ring-rose-200 hover:bg-rose-100 dark:bg-rose-500/15 dark:text-rose-300 dark:ring-rose-500/30" },
-  violet: { dot: "bg-violet-500", chip: "bg-violet-50 text-violet-700 ring-violet-200 hover:bg-violet-100 dark:bg-violet-500/15 dark:text-violet-300 dark:ring-violet-500/30" },
-  lime: { dot: "bg-lime-500", chip: "bg-lime-50 text-lime-800 ring-lime-200 hover:bg-lime-100 dark:bg-lime-500/15 dark:text-lime-300 dark:ring-lime-500/30" },
-  slate: { dot: "bg-slate-400", chip: "bg-slate-100 text-slate-700 ring-slate-200 hover:bg-slate-200 dark:bg-slate-700/50 dark:text-slate-300 dark:ring-slate-600" },
-  all: { dot: "bg-gradient-to-br from-indigo-500 to-fuchsia-500" },
+const state = {
+  course: "all", view: "chat", courses: [], profiles: [], editable: false, total: 0, source: "samples", demo: false, streak: 0, busy: false,
+  notes: [], granola: { connected: false, syncing: false, last: null, msg: "", authUrl: "", detail: "" },
 };
-const BAD_CHIP = "bg-red-50 text-red-700 ring-red-200 dark:bg-red-500/15 dark:text-red-300 dark:ring-red-500/30";
 
-// Demo questions for the sample notes. The last one is deliberately not covered, to show "Not in your notes".
-const TRY_ASKING = [
+// Course colors come from the registry (a palette name per course). Literal class names so Tailwind keeps them.
+const PALETTE_CLASSES = {
+  indigo: { dot: "bg-indigo-500", tile: "bg-indigo-100 dark:bg-indigo-500/25", chip: "bg-indigo-500 text-white hover:bg-indigo-600", text: "text-indigo-700 dark:text-indigo-300", bar: "border-indigo-500" },
+  sky: { dot: "bg-sky-500", tile: "bg-sky-100 dark:bg-sky-500/25", chip: "bg-sky-500 text-white hover:bg-sky-600", text: "text-sky-700 dark:text-sky-300", bar: "border-sky-500" },
+  emerald: { dot: "bg-emerald-500", tile: "bg-emerald-100 dark:bg-emerald-500/25", chip: "bg-emerald-500 text-white hover:bg-emerald-600", text: "text-emerald-700 dark:text-emerald-300", bar: "border-emerald-500" },
+  fuchsia: { dot: "bg-fuchsia-500", tile: "bg-fuchsia-100 dark:bg-fuchsia-500/25", chip: "bg-fuchsia-500 text-white hover:bg-fuchsia-600", text: "text-fuchsia-700 dark:text-fuchsia-300", bar: "border-fuchsia-500" },
+  amber: { dot: "bg-amber-500", tile: "bg-amber-100 dark:bg-amber-500/25", chip: "bg-amber-500 text-white hover:bg-amber-600", text: "text-amber-700 dark:text-amber-300", bar: "border-amber-500" },
+  teal: { dot: "bg-teal-500", tile: "bg-teal-100 dark:bg-teal-500/25", chip: "bg-teal-500 text-white hover:bg-teal-600", text: "text-teal-700 dark:text-teal-300", bar: "border-teal-500" },
+  orange: { dot: "bg-orange-500", tile: "bg-orange-100 dark:bg-orange-500/25", chip: "bg-orange-500 text-white hover:bg-orange-600", text: "text-orange-700 dark:text-orange-300", bar: "border-orange-500" },
+  rose: { dot: "bg-rose-500", tile: "bg-rose-100 dark:bg-rose-500/25", chip: "bg-rose-500 text-white hover:bg-rose-600", text: "text-rose-700 dark:text-rose-300", bar: "border-rose-500" },
+  violet: { dot: "bg-violet-500", tile: "bg-violet-100 dark:bg-violet-500/25", chip: "bg-violet-500 text-white hover:bg-violet-600", text: "text-violet-700 dark:text-violet-300", bar: "border-violet-500" },
+  lime: { dot: "bg-lime-500", tile: "bg-lime-100 dark:bg-lime-500/25", chip: "bg-lime-500 text-white hover:bg-lime-600", text: "text-lime-700 dark:text-lime-300", bar: "border-lime-500" },
+  slate: { dot: "bg-slate-400", tile: "bg-slate-100 dark:bg-slate-500/25", chip: "bg-slate-500 text-white hover:bg-slate-600", text: "text-slate-600 dark:text-slate-300", bar: "border-slate-400" },
+  all: { dot: "bg-gradient-to-br from-brand-500 to-fuchsia-500", tile: "bg-gradient-to-br from-brand-100 to-fuchsia-100 dark:from-brand-500/30 dark:to-fuchsia-500/30", chip: "bg-brand-500 text-white hover:bg-brand-600", text: "text-brand-700 dark:text-brand-300", bar: "border-brand-500" },
+};
+
+const BAD_CHIP = "bg-red-500 text-white";
+const PROFILE_ICON = { "quant-econ": "📈", finance: "💹", accounting: "🧾", general: "📚" };
+
+// Curated questions for the built-in sample notes (the last one is deliberately not covered, to show "Not in your notes").
+const SAMPLE_QUESTIONS = [
   { course: "ECON300", q: "How does a tax rate change the spending multiplier?" },
   { course: "ECON196", q: "Compare FIFO and LIFO when prices are rising." },
   { course: "ECON301", q: "Why does a monopoly create deadweight loss?" },
@@ -31,14 +36,22 @@ const TRY_ASKING = [
 const EMPTY_LINES = [
   "Your notes are ready. Your brain might need coffee. ☕",
   "Ask me anything. If it's not in your notes, I'll say so. No bluffing.",
-  "Midterm season? Let's turn your notes into answers.",
+  "Study mode: on. Let's turn your notes into answers. 🚀",
   "No hallucinations here, just your notes and receipts. 🧾",
 ];
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 const inline = (s) => s.replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace(/`(.+?)`/g, "<code>$1</code>");
-const color = (id) => PALETTE_CLASSES[id === "all" ? "all" : state.courses.find((c) => c.id === id)?.color ?? "slate"] ?? PALETTE_CLASSES.slate;
-const courseName = (id) => (id === "all" ? "All courses" : state.courses.find((c) => c.id === id)?.name ?? id);
+const courseOf = (id) => state.courses.find((c) => c.id === id);
+const palette = (id) => PALETTE_CLASSES[id === "all" ? "all" : courseOf(id)?.color ?? "slate"] ?? PALETTE_CLASSES.slate;
+const courseName = (id) => (id === "all" ? "Everything" : id === "unsorted" ? "Inbox" : courseOf(id)?.name ?? id);
+const iconFor = (id) => (id === "all" ? "✨" : id === "unsorted" ? "📥" : PROFILE_ICON[courseOf(id)?.profile] ?? "📚");
+const fmtDate = (iso) => (iso ? new Date(iso + "T12:00").toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "");
+const ago = (iso) => {
+  const m = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+  return m < 1 ? "just now" : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} d ago`;
+};
+const plural = (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`;
 
 // Must match src/citations.ts (runs on escaped HTML, so quotes may appear as &quot;)
 const CITE_RE = /\[([A-Za-z0-9]+) (\d{4}-\d{2}-\d{2}): ([^\]|]+?)(?:\s*\|\s*(?:&quot;|["“])([^\]]*?)(?:&quot;|["”]))?\s*\]/g;
@@ -69,43 +82,60 @@ function renderMarkdown(src) {
   return html;
 }
 
-/** Render an assistant answer: markdown + course-colored citation chips + honesty labels. */
+/** Render an assistant answer: { html } is the text with numbered citation chips (one number per source note); { footer } lists the sources. */
 function renderAnswer(text, msg) {
   const byLabel = Object.fromEntries((msg.notesUsed || []).map((n) => [n.label, n.id]));
   const byRaw = Object.fromEntries((msg.citations || []).map((c) => [c.raw, c]));
-  let html = renderMarkdown(text).replace(CITE_RE, (raw, course, date, topic, quote) => {
+  const sources = new Map();
+  let prev = { end: -1, n: 0 };
+
+  let html = renderMarkdown(text).replace(CITE_RE, (raw, course, date, topic, quote, offset, whole) => {
     const label = `${course} ${date}: ${topic.trim()}`;
     const info = byRaw[raw.replace(/&quot;/g, '"')];
     const id = info?.noteId || byLabel[label] || "";
-    const bad = info && info.status !== "ok";
+    const bad = !!info && info.status !== "ok";
+    const key = id || label;
+    if (!sources.has(key)) sources.set(key, { n: sources.size + 1, id, label, course, date, topic: topic.trim(), quote: quote ? quote.replace(/&quot;/g, '"') : "", bad });
+    const src = sources.get(key);
+    const gap = whole.slice(prev.end, offset);
+    const dupe = prev.n === src.n && /^\s*$/.test(gap);
+    prev = { end: offset + raw.length, n: src.n };
+    if (dupe) return gap;
     const why = bad ? (info.status === "unknown_note" ? "This citation doesn't match a note that was sent." : "Quote not found word-for-word in the note.") : "";
-    const short = new Date(date + "T12:00").toLocaleDateString(undefined, { month: "short", day: "numeric" });
-    return `<button type="button" class="cite mx-0.5 inline-flex items-center gap-1 rounded-md px-1.5 py-px align-[1px] text-[11px] font-semibold ring-1 ring-inset transition ${bad ? BAD_CHIP : color(course).chip}"
-      data-id="${esc(id)}" data-quote="${quote ? esc(quote.replace(/&quot;/g, '"')) : ""}" data-label="${esc(label)}" data-why="${esc(why)}">${bad ? "⚠" : ""}<span class="font-mono">${esc(course)}</span><span class="font-normal opacity-75">${esc(short)}</span></button>`;
+    return `<button type="button" class="cite mx-0.5 inline-grid h-[1.35rem] min-w-[1.35rem] place-items-center rounded-full px-1.5 align-[1px] text-[11px] font-extrabold leading-none transition active:scale-90 ${bad ? BAD_CHIP : palette(course).chip}"
+      data-id="${esc(id)}" data-quote="${esc(quote ? quote.replace(/&quot;/g, '"') : "")}" data-label="${esc(label)}" data-why="${esc(why)}" aria-label="Source ${src.n}: ${esc(label)}">${bad ? "!" : src.n}</button>`;
   });
-  html = html.replace(/\(General knowledge\)/g, '<span class="rounded-md bg-amber-100 px-1.5 py-px text-[11px] font-semibold text-amber-800 dark:bg-amber-500/15 dark:text-amber-300">🌐 General knowledge</span>');
-  html = html.replace(/Not in your notes\.?/g, (m) => `<span class="inline-flex items-center gap-1 rounded-md bg-slate-900 px-2 py-0.5 text-xs font-semibold text-white dark:bg-white dark:text-slate-900">🔎 ${m}</span>`);
-  return html;
+
+  html = html.replace(/\(General knowledge\)/g, '<span class="rounded-md bg-sun/30 px-1.5 py-px text-[11px] font-extrabold text-amber-800 dark:text-sun">🌐 General knowledge</span>');
+  html = html.replace(/Not in your notes\.?/g, (m) => `<span class="inline-flex items-center gap-1 rounded-lg bg-ink-900 px-2.5 py-0.5 text-xs font-extrabold text-white dark:bg-white dark:text-ink-900">🔎 ${m}</span>`);
+
+  let footer = "";
+  if (sources.size) {
+    footer = `<div class="mt-3.5 flex flex-wrap gap-2 border-t border-slate-100 pt-3 dark:border-ink-700">` +
+      [...sources.values()].map((s) => `<button type="button" class="cite-foot flex max-w-full items-center gap-2 rounded-xl bg-slate-50 py-1 pr-3 pl-1 text-left text-xs font-semibold text-slate-600 transition hover:bg-slate-100 dark:bg-ink-700 dark:text-slate-200 dark:hover:bg-ink-600" data-id="${esc(s.id)}" data-quote="${esc(s.quote)}">
+        <span class="grid h-5 min-w-5 place-items-center rounded-full px-1 text-[11px] font-extrabold text-white ${s.bad ? BAD_CHIP : palette(s.course).dot}">${s.bad ? "!" : s.n}</span>
+        <span class="truncate">${esc(s.course)} · ${esc(s.topic)} · ${esc(fmtDate(s.date))}</span></button>`).join("") + `</div>`;
+  }
+  return { html, footer };
 }
 
 function notesUsedLine(msg) {
   if (!msg.notesUsed) return "";
   const n = msg.notesUsed.length;
-  const mode = msg.mode === "ranked" ? "best matches by keyword + recency" : "every note in scope";
-  const list = msg.notesUsed.map((x) => `<li class="flex items-center gap-1.5"><span class="h-1.5 w-1.5 rounded-full ${color(x.label.split(" ")[0]).dot}"></span>${esc(x.label)}</li>`).join("");
-  return `<details class="mt-3 border-t border-slate-100 pt-2 text-xs text-slate-500 dark:border-slate-800 dark:text-slate-400">
-    <summary class="cursor-pointer select-none hover:text-slate-700 dark:hover:text-slate-200">📎 Read ${n} note${n === 1 ? "" : "s"} (${mode})</summary>
+  const mode = msg.mode === "ranked" ? "best matches by keyword and recency" : "every note in scope";
+  const list = msg.notesUsed.map((x) => `<li class="flex items-center gap-1.5"><span class="h-1.5 w-1.5 rounded-full ${palette(x.label.split(" ")[0]).dot}"></span>${esc(x.label)}</li>`).join("");
+  return `<details class="mt-2.5 text-[11px] text-slate-400"><summary class="cursor-pointer select-none hover:text-slate-600 dark:hover:text-slate-200">Searched ${plural(n, "note")} (${mode})</summary>
     <ul class="mt-1.5 space-y-0.5 pl-1">${list || "<li>none</li>"}</ul></details>`;
 }
 
 function messageEl(msg) {
   const el = document.createElement("div");
-  el.className = "fade-in";
+  el.className = "fade-in mx-auto max-w-3xl";
   if (msg.role === "user") {
-    el.innerHTML = `<div class="flex justify-end"><div class="max-w-[85%] rounded-2xl rounded-br-md bg-indigo-600 px-4 py-2.5 text-sm text-white shadow-sm md:max-w-[70%]">${esc(msg.text)}${msg.useGeneral ? '<div class="mt-1 text-[10px] font-medium text-indigo-200">🌐 general knowledge on</div>' : ""}</div></div>`;
+    el.innerHTML = `<div class="flex justify-end"><div class="max-w-[85%] rounded-3xl rounded-br-lg bg-brand-500 px-5 py-3 text-[15px] font-medium text-white shadow-card md:max-w-[75%]">${esc(msg.text)}${msg.useGeneral ? '<div class="mt-1 text-[10px] font-bold text-brand-100">🌐 general knowledge on</div>' : ""}</div></div>`;
   } else {
-    el.innerHTML = `<div class="flex gap-3"><img src="/logo.svg" alt="" class="mt-1 hidden h-7 w-7 shrink-0 sm:block" />
-      <div class="bubble min-w-0 max-w-full rounded-2xl rounded-tl-md border px-4 py-3 text-sm shadow-sm md:max-w-[80%]"><div class="md body"></div><div class="meta"></div></div></div>`;
+    el.innerHTML = `<div class="flex gap-3"><img src="/logo.svg" alt="" class="mt-1 hidden h-8 w-8 shrink-0 sm:block" />
+      <div class="bubble min-w-0 max-w-full rounded-3xl rounded-tl-lg px-5 py-4 text-[15px] shadow-card ring-1"><div class="md body"></div><div class="meta"></div></div></div>`;
     updateAssistant(el, msg);
   }
   return el;
@@ -113,80 +143,163 @@ function messageEl(msg) {
 
 function updateAssistant(el, msg, streaming = false) {
   const bubble = el.querySelector(".bubble");
-  bubble.className = bubble.className.replace(/border-\S+|bg-\S+|dark:\S+/g, "").trim() + " " +
-    (msg.error ? "border-red-200 bg-red-50 text-red-800 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-200"
-               : "border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900");
+  bubble.className = "bubble min-w-0 max-w-full rounded-3xl rounded-tl-lg px-5 py-4 text-[15px] shadow-card ring-1 " +
+    (msg.error ? "bg-red-50 text-red-900 ring-red-200 dark:bg-red-500/10 dark:text-red-100 dark:ring-red-500/30" : "bg-white ring-slate-200/70 dark:bg-ink-800 dark:ring-ink-600");
   const body = el.querySelector(".body");
   if (msg.error) body.innerHTML = `<p><b>😕 Hmm, that didn't work.</b></p><p>${esc(msg.text.replace(/^Error:\s*/, ""))}</p>`;
-  else if (!msg.text) body.innerHTML = `<div class="flex items-center gap-2 text-slate-400"><span class="dots"><span></span><span></span><span></span></span>Reading ${msg.notesUsed ? msg.notesUsed.length + " notes" : "your notes"}…</div>`;
-  else body.innerHTML = renderAnswer(msg.text, msg);
+  const meta = el.querySelector(".meta");
+  if (msg.error || !msg.text) {
+    if (!msg.error && !msg.text) body.innerHTML = `<div class="flex items-center gap-2 text-slate-400"><span class="dots"><span></span><span></span><span></span></span>Reading ${msg.notesUsed ? plural(msg.notesUsed.length, "note") : "your notes"}…</div>`;
+    meta.innerHTML = "";
+  } else {
+    const a = renderAnswer(msg.text, msg);
+    body.innerHTML = a.html;
+    meta.innerHTML = a.footer + notesUsedLine(msg);
+  }
   body.classList.toggle("cursor", streaming && !!msg.text);
-  el.querySelector(".meta").innerHTML = msg.error ? "" : notesUsedLine(msg);
 }
 
 const scrollDown = () => { const m = $("messages"); m.scrollTop = m.scrollHeight; };
 
+// ---- suggestions ----
+function suggestions() {
+  if (state.source === "samples") return SAMPLE_QUESTIONS;
+  const mine = state.notes.slice(0, 2);
+  const out = mine.map((n) => ({ course: state.course, q: `What were the key points of “${n.title}”?` }));
+  const label = state.course === "all" ? "my classes" : courseName(state.course);
+  out.push({ course: state.course, q: `What formulas and definitions should I memorize for ${label}?` });
+  out.push({ course: state.course, q: `What has my professor said about the exam in ${label}?` });
+  return out;
+}
+
+function renderTryRow(show) {
+  $("tryRow").classList.toggle("hidden", !show);
+  $("tryRow").classList.toggle("flex", show);
+  $("tryRow").innerHTML = show
+    ? `<span class="shrink-0 self-center text-[11px] font-extrabold uppercase tracking-wider text-slate-400">Try asking</span>` +
+      suggestions().map((t, i) => `<button type="button" data-try="${i}" class="shrink-0 rounded-full bg-white px-4 py-1.5 text-xs font-semibold text-slate-700 shadow-card ring-1 ring-slate-200 transition hover:-translate-y-0.5 hover:text-brand-600 hover:ring-brand-300 dark:bg-ink-800 dark:text-slate-200 dark:ring-ink-600 dark:hover:ring-brand-400">${esc(t.q)}</button>`).join("")
+    : "";
+}
+
 function emptyState() {
   const line = EMPTY_LINES[Math.floor(Math.random() * EMPTY_LINES.length)];
-  const scope = state.course === "all" ? "all your courses" : `<b>${esc(state.course)}</b> · ${esc(courseName(state.course))}`;
-  const count = state.course === "all" ? state.total : state.courses.find((c) => c.id === state.course)?.count ?? 0;
-  $("messages").innerHTML = `<div class="empty fade-in mx-auto mt-[8vh] max-w-md text-center">
-    <img src="/logo.svg" alt="" class="mx-auto h-14 w-14 drop-shadow-sm" />
-    <h2 class="mt-4 text-xl font-bold tracking-tight">${line}</h2>
-    <p class="mt-2 text-sm text-slate-500 dark:text-slate-400">Searching ${scope} (${count} notes). Every answer cites the exact note it came from.</p>
-    ${state.source === "samples" ? '<p class="mt-3 text-xs text-slate-400">Pick a question below to see it in action ↓</p>' : ""}
+  const count = state.course === "all" ? state.total : courseOf(state.course)?.count ?? 0;
+  $("messages").innerHTML = `<div class="empty fade-in mx-auto mt-[5vh] max-w-lg text-center">
+    <div class="pop mx-auto grid h-20 w-20 place-items-center rounded-3xl text-4xl ${palette(state.course).tile}">${iconFor(state.course)}</div>
+    <h2 class="mt-5 text-2xl font-extrabold tracking-tight">${line}</h2>
+    <p class="mt-2 text-sm text-slate-500 dark:text-slate-400">${count ? `Searching ${plural(count, "note")} in <b>${esc(courseName(state.course))}</b>. Every answer shows the notes it came from.` : "No notes here yet. Sync from Granola to fill this class up."}</p>
+    ${count ? `<button data-view-go="notes" class="mt-4 rounded-full bg-brand-50 px-5 py-2 text-sm font-bold text-brand-700 transition hover:bg-brand-100 dark:bg-brand-500/15 dark:text-brand-200">📚 Browse the notes</button>` : ""}
   </div>`;
 }
 
-function renderTryRow() {
-  const show = state.source === "samples";
-  $("tryRow").classList.toggle("hidden", !show);
-  $("tryRow").classList.toggle("flex", show);
-  $("tryRow").innerHTML = show ? `<span class="shrink-0 self-center text-[11px] font-semibold uppercase tracking-wider text-slate-400">Try asking</span>` +
-    TRY_ASKING.map((t, i) => `<button type="button" data-try="${i}" class="shrink-0 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs text-slate-700 transition hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:border-indigo-500/50 dark:hover:bg-indigo-500/10">${esc(t.q)}</button>`).join("") : "";
-}
-
-function renderStreak() {
-  const s = state.streak;
-  $("streak").innerHTML = s > 0
-    ? `<div class="flex items-center gap-2"><span class="text-xl">🔥</span><div><b class="text-sm">${s}-day study streak</b><div class="opacity-75">${s >= 3 ? "You're on a roll. Keep it going!" : "Come back tomorrow to keep it alive."}</div></div></div>`
-    : `<div class="flex items-center gap-2"><span class="text-xl grayscale">🔥</span><div><b class="text-sm">No streak yet</b><div class="opacity-75">Ask one question to light it up.</div></div></div>`;
-}
-
-function courseItem(id, name, count) {
+// ---- sidebar ----
+function courseRow(id, name, sub, count, extra = "") {
   const active = state.course === id;
-  return `<button data-course="${id}" class="group flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm transition ${active ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300" : "text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"}">
-    <span class="h-2 w-2 shrink-0 rounded-full ${color(id).dot}"></span>
-    <span class="min-w-0 flex-1 truncate">${id === "all" ? "<b class='font-semibold'>All courses</b>" : `<span class="font-mono text-xs font-semibold">${id}</span> <span class="${active ? "" : "text-slate-500 dark:text-slate-400"}">${esc(name)}</span>`}</span>
-    <span class="rounded-full px-1.5 text-[11px] tabular-nums ${active ? "bg-indigo-100 dark:bg-indigo-500/20" : "bg-slate-100 text-slate-500 dark:bg-slate-800"}">${count}</span></button>`;
+  const p = palette(id);
+  return `<button data-course="${esc(id)}" class="group flex w-full items-center gap-3 rounded-2xl px-3 py-2 text-left transition ${active ? "bg-brand-50 ring-1 ring-brand-200 dark:bg-brand-500/15 dark:ring-brand-500/40" : "hover:bg-slate-50 dark:hover:bg-ink-700"}">
+    <span class="grid h-9 w-9 shrink-0 place-items-center rounded-xl text-base ${p.tile}">${iconFor(id)}</span>
+    <span class="min-w-0 flex-1"><span class="block truncate text-sm font-bold ${active ? "text-brand-700 dark:text-brand-200" : ""}">${esc(name)}</span>
+      <span class="block truncate text-[11px] font-medium text-slate-400">${esc(sub)}</span></span>
+    <span class="rounded-full px-2 py-0.5 text-[11px] font-extrabold tabular-nums ${extra || (active ? "bg-brand-500 text-white" : "bg-slate-100 text-slate-500 dark:bg-ink-700 dark:text-slate-300")}">${count}</span></button>`;
 }
 
 function visibleCourses() {
-  return [{ id: "all", name: "All courses", count: state.total }, ...state.courses.filter((c) => !c.archived && (c.id !== "unsorted" || c.count > 0))];
+  return state.courses.filter((c) => !c.archived && c.id !== "unsorted" && (c.count > 0 || c.id === state.course));
+}
+
+function renderSidebar() {
+  const inbox = courseOf("unsorted");
+  const rows = [courseRow("all", "Everything", "All your classes", state.total)];
+  for (const c of visibleCourses()) rows.push(courseRow(c.id, c.name, `${c.id}${c.latest ? " · last " + fmtDate(c.latest) : ""}`, c.count));
+  if (inbox && inbox.count > 0) rows.push(courseRow("unsorted", "Inbox", "Notes that need a class", inbox.count, "bg-sun text-ink-900"));
+  $("courses").innerHTML = rows.join("");
+}
+
+function renderStreak() {
+  const n = state.streak;
+  $("streak").innerHTML = n > 0
+    ? `<span class="text-lg">🔥</span><span><b class="font-extrabold">${n}-day streak</b> <span class="font-medium opacity-70">${n >= 3 ? "· on a roll!" : "· keep it alive"}</span></span>`
+    : `<span class="text-lg grayscale">🔥</span><span class="font-medium opacity-80">Ask a question to start a streak</span>`;
+}
+
+// ---- header ----
+function renderHeader() {
+  const c = courseOf(state.course);
+  const count = state.course === "all" ? state.total : c?.count ?? 0;
+  const latest = state.course === "all" ? state.courses.map((x) => x.latest).filter(Boolean).sort().at(-1) : c?.latest;
+  $("scopeTitle").textContent = courseName(state.course);
+  $("scopeSub").textContent = [state.course !== "all" && state.course !== "unsorted" ? state.course : "", plural(count, "note"), latest ? `latest ${fmtDate(latest)}` : ""].filter(Boolean).join(" · ");
+  const hi = $("heroIcon");
+  hi.className = `grid h-12 w-12 shrink-0 place-items-center rounded-2xl text-2xl md:h-14 md:w-14 md:text-3xl ${palette(state.course).tile}`;
+  hi.textContent = iconFor(state.course);
+  $("notesCount").textContent = count;
+  $("sourceBadge").classList.toggle("hidden", state.source !== "samples");
+  $("sourceBadge").innerHTML = `<span class="sm:hidden">${state.demo ? "Demo" : "Samples"}</span><span class="hidden sm:inline">${state.demo ? "Demo mode · sample notes" : "Sample notes"}</span>`;
+  document.querySelectorAll(".tab").forEach((t) => {
+    const on = t.dataset.view === state.view;
+    t.className = `tab -mb-px border-b-[3px] px-4 py-2.5 text-sm font-bold transition ${on ? "border-brand-500 text-brand-600 dark:text-brand-300" : "border-transparent text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"}`;
+    t.setAttribute("aria-selected", on);
+  });
+  $("clearBtn").classList.toggle("invisible", state.view !== "chat");
 }
 
 async function refreshState() {
   const r = await fetch("/api/state").then((r) => r.json());
   Object.assign(state, { courses: r.courses, profiles: r.profiles, editable: r.editable, total: r.total, source: r.source, demo: r.demo, streak: r.streak });
-  $("courses").innerHTML = visibleCourses().map((c) => courseItem(c.id, c.name, c.count)).join("");
   $("demo").checked = $("demoMobile").checked = state.demo;
-  $("sourceBadge").classList.toggle("hidden", state.source !== "samples");
-  $("sourceBadge").innerHTML = `<span class="sm:hidden">${state.demo ? "Demo" : "Samples"}</span><span class="hidden sm:inline">${state.demo ? "Demo mode · sample notes" : "Sample notes"}</span>`;
-  const c = state.courses.find((x) => x.id === state.course);
-  $("scopeTitle").textContent = state.course === "all" ? "All courses" : `${state.course} · ${c?.name ?? ""}`;
-  $("scopeSub").textContent = `${state.course === "all" ? state.total : c?.count ?? 0} notes in scope`;
-  $("scopeDot").className = `h-2.5 w-2.5 shrink-0 rounded-full ${color(state.course).dot}`;
-  renderStreak();
-  renderTryRow();
+  renderSidebar(); renderHeader(); renderStreak();
 }
 
-async function selectCourse(id) {
+async function loadNotes() {
+  state.notes = await fetch(`/api/notes?course=${encodeURIComponent(state.course)}`).then((r) => (r.ok ? r.json() : []));
+  if (state.view === "notes") renderNotes();
+}
+
+// ---- views ----
+function setView(v) {
+  state.view = v;
+  try { localStorage.setItem("view", v); } catch {}
+  $("chatView").classList.toggle("hidden", v !== "chat");
+  $("chatView").classList.toggle("flex", v === "chat");
+  $("notesView").classList.toggle("hidden", v !== "notes");
+  $("notesView").classList.toggle("flex", v === "notes");
+  renderHeader();
+  if (v === "notes") { renderNotes(); $("notesSearch").focus(); } else $("q").focus();
+}
+
+function noteCard(n) {
+  const p = palette(n.course);
+  const inbox = n.course === "unsorted";
+  const mover = inbox && state.source === "notes"
+    ? `<select data-move="${esc(n.id)}" class="mt-3 w-full rounded-xl border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-xs font-bold text-amber-900 dark:border-sun/40 dark:bg-sun/10 dark:text-sun">
+         <option value="">📥 File under a class…</option>${state.courses.filter((c) => !c.archived && c.id !== "unsorted").map((c) => `<option value="${esc(c.id)}">${esc(c.id)} · ${esc(c.name)}</option>`).join("")}</select>`
+    : "";
+  return `<div class="fade-in group flex flex-col rounded-2xl border-l-4 bg-white p-4 shadow-card ring-1 ring-slate-200/70 transition hover:-translate-y-0.5 hover:shadow-pop dark:bg-ink-800 dark:ring-ink-600 ${p.bar}">
+    <button data-open="${esc(n.id)}" class="flex-1 text-left">
+      <div class="flex items-center justify-between gap-2 text-xs"><span class="font-extrabold ${p.text}">${esc(fmtDate(n.date))}</span><span class="truncate rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-extrabold text-slate-500 dark:bg-ink-700 dark:text-slate-300">${esc(n.course === "unsorted" ? "Inbox" : n.course)}</span></div>
+      <div class="mt-2 line-clamp-2 text-[15px] leading-snug font-extrabold">${esc(n.title)}</div>
+      <p class="mt-1.5 line-clamp-3 text-[13px] leading-relaxed text-slate-500 dark:text-slate-400">${esc(n.snippet)}</p>
+    </button>${mover}</div>`;
+}
+
+function renderNotes() {
+  const q = $("notesSearch").value.trim().toLowerCase();
+  const list = q ? state.notes.filter((n) => `${n.title} ${n.snippet} ${n.course}`.toLowerCase().includes(q)) : state.notes;
+  $("notesGrid").innerHTML = list.length
+    ? list.map(noteCard).join("")
+    : `<div class="col-span-full mx-auto mt-10 max-w-sm text-center text-sm text-slate-500"><div class="text-4xl">${q ? "🤷" : "📭"}</div><p class="mt-3 font-semibold">${q ? "No notes match that search." : "No notes in here yet."}</p>${q ? "" : '<p class="mt-1">Connect Granola in the sidebar and your classes fill up automatically.</p>'}</div>`;
+}
+
+async function selectCourse(id, { keepView = true } = {}) {
   state.course = id;
-  await refreshState();
+  $("notesSearch").value = "";
+  await Promise.all([refreshState(), loadNotes()]);
   const history = await fetch(`/api/chats/${encodeURIComponent(id)}`).then((r) => r.json());
   $("messages").innerHTML = "";
   if (!history.length) emptyState();
   history.forEach((m) => $("messages").appendChild(messageEl(m)));
+  renderTryRow(!history.length);
+  if (!keepView) setView("chat"); else setView(state.view);
   scrollDown();
 }
 
@@ -196,10 +309,31 @@ function setBusy(b) {
   $("sendLabel").innerHTML = b ? '<span class="dots"><span></span><span></span><span></span></span>' : "Ask";
 }
 
+async function readSse(res, onEvent) {
+  const reader = res.body.getReader();
+  const dec = new TextDecoder();
+  let buf = "";
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, { stream: true });
+    let i;
+    while ((i = buf.indexOf("\n\n")) >= 0) {
+      const chunk = buf.slice(0, i);
+      buf = buf.slice(i + 2);
+      const ev = chunk.match(/^event: (\w+)/)?.[1];
+      const m = chunk.match(/\ndata: (.*)$/s);
+      onEvent(ev, m ? JSON.parse(m[1]) : null);
+    }
+  }
+}
+
 async function ask(question) {
   if (state.busy) return;
+  if (state.view !== "chat") setView("chat");
   setBusy(true);
   $("messages").querySelector(".empty")?.remove();
+  renderTryRow(false);
   const useGeneral = $("general").checked;
   $("messages").appendChild(messageEl({ role: "user", text: question, useGeneral }));
   const msg = { role: "assistant", text: "" };
@@ -210,27 +344,14 @@ async function ask(question) {
   try {
     const res = await fetch("/api/chat", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ course: state.course, question, useGeneral }) });
     if (!res.ok || !res.body) throw new Error((await res.json().catch(() => ({}))).error || `Server error (${res.status})`);
-    const reader = res.body.getReader();
-    const dec = new TextDecoder();
-    let buf = "";
-    for (;;) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      buf += dec.decode(value, { stream: true });
-      let i;
-      while ((i = buf.indexOf("\n\n")) >= 0) {
-        const chunk = buf.slice(0, i);
-        buf = buf.slice(i + 2);
-        const ev = chunk.match(/^event: (\w+)/)?.[1];
-        const data = JSON.parse(chunk.match(/\ndata: (.*)$/s)?.[1] ?? "null");
-        if (ev === "meta") Object.assign(msg, data);
-        if (ev === "delta") msg.text += data;
-        if (ev === "done") Object.assign(msg, { text: data.text, citations: data.citations });
-        if (ev === "error") Object.assign(msg, { text: data.message, error: true });
-        updateAssistant(el, msg, ev === "delta" || ev === "meta");
-        scrollDown();
-      }
-    }
+    await readSse(res, (ev, data) => {
+      if (ev === "meta") Object.assign(msg, data);
+      if (ev === "delta") msg.text += data;
+      if (ev === "done") Object.assign(msg, { text: data.text, citations: data.citations });
+      if (ev === "error") Object.assign(msg, { text: data.message, error: true });
+      updateAssistant(el, msg, ev === "delta" || ev === "meta");
+      scrollDown();
+    });
   } catch (e) {
     Object.assign(msg, { error: true, text: /fetch|network/i.test(e.message) ? "Can't reach the StudyDeck server. Is it still running?" : e.message });
   }
@@ -264,18 +385,23 @@ function findPassage(root, quote) {
       if (s > top) { top = s; best = b; }
     }
   }
-  if (best?.tagName === "TD" && best.cellIndex > 0) return best; // keep the notes column
   return best;
 }
 
+let openNoteId = "";
 async function openSource(id, quote) {
   const note = await getNote(id);
   if (!note) return;
+  openNoteId = id;
   $("source").classList.remove("hidden");
   $("source").classList.add("flex", "slide-in");
   $("sourceTitle").textContent = note.label + (note.sample ? "  · sample" : "");
   $("sourceBody").innerHTML = renderMarkdown(note.body);
   $("sourceBody").scrollTop = 0;
+  const movable = state.source === "notes";
+  $("moveWrap").classList.toggle("hidden", !movable);
+  $("moveWrap").classList.toggle("flex", movable);
+  if (movable) $("moveSelect").innerHTML = state.courses.filter((c) => !c.archived).map((c) => `<option value="${esc(c.id)}" ${c.id === note.course ? "selected" : ""}>${esc(c.id === "unsorted" ? "Inbox" : c.id + " · " + c.name)}</option>`).join("");
   const best = quote && findPassage($("sourceBody"), quote);
   if (best) { best.classList.add("hl"); best.scrollIntoView({ block: "center", behavior: "smooth" }); }
 }
@@ -283,6 +409,17 @@ async function openSource(id, quote) {
 function closeSource() {
   $("source").classList.add("hidden");
   $("source").classList.remove("flex");
+  openNoteId = "";
+}
+
+async function moveNoteTo(id, target) {
+  const [course, file] = id.split("/");
+  const res = await fetch(`/api/notes/${encodeURIComponent(course)}/${encodeURIComponent(file)}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ course: target }) });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) return alert(data.error || "Couldn't move that note.");
+  noteCache.clear();
+  await Promise.all([refreshState(), loadNotes()]);
+  if (openNoteId === id) { if (state.view === "notes" || state.course === "all" || state.course === target) openSource(data.id); else closeSource(); }
 }
 
 let previewFor = null;
@@ -292,9 +429,9 @@ async function showPreview(chip) {
   const r = chip.getBoundingClientRect();
   const place = () => {
     p.style.left = Math.max(8, Math.min(r.left, innerWidth - p.offsetWidth - 8)) + "px";
-    p.style.top = (r.top > 140 ? r.top - p.offsetHeight - 8 : r.bottom + 8) + "px";
+    p.style.top = (r.top > 150 ? r.top - p.offsetHeight - 8 : r.bottom + 8) + "px";
   };
-  const head = `<div class="mb-1 font-semibold opacity-70">${esc(chip.dataset.label)}</div>`;
+  const head = `<div class="mb-1 font-extrabold opacity-70">${esc(chip.dataset.label)}</div>`;
   p.innerHTML = chip.dataset.why ? head + `⚠ ${esc(chip.dataset.why)}` : head + "…";
   p.classList.remove("hidden");
   place();
@@ -310,57 +447,219 @@ async function showPreview(chip) {
 }
 function hidePreview() { previewFor = null; $("preview").classList.add("hidden"); }
 
-// ---- course picker (⌘K) ----
+// ---- Granola connection and sync ----
+const G = state.granola;
+
+function renderGranola() {
+  const el = $("granolaCard");
+  const busy = G.syncing;
+  const btn = (id, label, primary = true) => `<button id="${id}" ${busy ? "disabled" : ""} class="${primary ? "bg-brand-500 text-white hover:bg-brand-600" : "bg-white text-brand-700 ring-1 ring-brand-200 hover:bg-brand-50 dark:bg-ink-700 dark:text-brand-100 dark:ring-ink-600"} mt-2.5 w-full rounded-xl px-3 py-2 text-sm font-extrabold transition active:scale-95 disabled:opacity-60">${label}</button>`;
+  let body;
+  if (!G.connected) {
+    body = `<div class="flex items-center gap-2 text-sm font-extrabold"><span class="h-2 w-2 rounded-full bg-slate-300"></span>Granola</div>
+      <p class="mt-1 font-medium leading-snug opacity-80">One sign-in, then your whole semester syncs itself.</p>
+      ${btn("connectBtn", "Connect Granola")}
+      ${G.authUrl ? `<a href="${esc(G.authUrl)}" target="_blank" rel="noopener" class="mt-2 block text-center text-[11px] font-bold underline">Sign-in tab didn't open? Click here</a>` : ""}`;
+  } else {
+    const last = G.last;
+    const lastLine = last ? `Synced ${ago(last.at)}${last.added || last.updated ? ` · ${last.added} new, ${last.updated} updated` : " · all up to date"}` : "Not synced yet";
+    body = `<div class="flex items-center justify-between gap-2"><div class="flex items-center gap-2 text-sm font-extrabold"><span class="h-2 w-2 rounded-full bg-emerald-500"></span>Granola connected</div>
+        <button id="disconnectBtn" class="text-[10px] font-bold opacity-50 hover:opacity-100">Disconnect</button></div>
+      <p class="mt-1 font-medium opacity-80">${esc(busy ? "Syncing…" : lastLine)}</p>
+      ${btn("syncBtn", busy ? '<span class="dots"><span></span><span></span><span></span></span>' : "Sync now")}`;
+  }
+  if (G.msg) body += `<div class="mt-2.5 rounded-xl bg-white/70 px-3 py-2 text-[11px] font-semibold leading-relaxed dark:bg-ink-900/40">${esc(G.msg)}</div>`;
+  if (G.detail) body += `<details class="mt-2 text-[11px]"><summary class="cursor-pointer font-bold opacity-70">See what changed</summary><div class="mt-1 max-h-32 overflow-y-auto whitespace-pre-wrap opacity-80">${esc(G.detail)}</div></details>`;
+  el.innerHTML = body;
+}
+
+async function refreshGranola() {
+  try {
+    const s = await fetch("/api/granola/status").then((r) => r.json());
+    Object.assign(G, { connected: s.connected, syncing: s.syncing || G.syncing, last: s.last ?? null });
+  } catch {}
+  renderGranola();
+}
+
+async function connectGranola() {
+  G.msg = "Opening the Granola sign-in…"; G.authUrl = ""; renderGranola();
+  try {
+    const res = await fetch("/api/granola/connect", { method: "POST" });
+    const d = await res.json();
+    if (!res.ok) { G.msg = "😕 " + d.error; return renderGranola(); }
+    G.authUrl = d.authUrl;
+    G.msg = "Finish signing in on the Granola tab. This page updates by itself.";
+    renderGranola();
+    window.open(d.authUrl, "_blank");
+    for (let i = 0; i < 150; i++) {
+      await new Promise((r) => setTimeout(r, 2000));
+      const s = await fetch("/api/granola/status").then((r) => r.json());
+      if (s.connected) { G.connected = true; G.authUrl = ""; G.msg = "🎉 Connected! Pulling in your notes…"; renderGranola(); return runGranolaSync(); }
+    }
+    G.msg = "Sign-in timed out. Click Connect Granola to try again."; G.authUrl = "";
+  } catch (e) {
+    G.msg = "😕 Couldn't start the sign-in. Is StudyDeck still running?";
+  }
+  renderGranola();
+}
+
+async function runGranolaSync() {
+  if (G.syncing) return;
+  G.syncing = true; G.detail = ""; G.msg = "Starting…"; renderGranola();
+  try {
+    const res = await fetch("/api/sync", { method: "POST" });
+    if (!res.ok || !res.body) {
+      const d = await res.json().catch(() => ({}));
+      if (d.needsConnect) { G.connected = false; G.msg = "Granola needs to be connected again."; } else G.msg = "😕 " + (d.error || `Sync failed (${res.status})`);
+      return;
+    }
+    await readSse(res, (ev, data) => {
+      if (ev === "progress") { G.msg = data; renderGranola(); }
+      if (ev === "done") {
+        const bits = [data.added.length && `${data.added.length} new`, data.updated.length && `${data.updated.length} updated`, data.moved.length && `${data.moved.length} re-filed`].filter(Boolean);
+        G.msg = bits.length ? `🎉 ${bits.join(", ")} (of ${data.scanned} meetings)` : `✅ Already up to date (${data.scanned} meetings checked)`;
+        if (data.errors.length) G.msg += ` · ${plural(data.errors.length, "problem")}`;
+        G.detail = [...data.added.map((a) => `+ ${a.course}: ${a.title}`), ...data.updated.map((a) => `~ ${a.course}: ${a.title}`), ...data.moved.map((a) => `→ ${a.course}: ${a.title}`),
+          ...data.errors.map((e) => `! ${e.title}: ${e.error}`)].join("\n");
+      }
+      if (ev === "error") { G.msg = "😕 " + data.message; if (data.needsConnect) G.connected = false; }
+    });
+  } catch (e) {
+    G.msg = "😕 Lost contact with StudyDeck during the sync.";
+  }
+  G.syncing = false;
+  noteCache.clear();
+  await Promise.all([refreshGranola(), refreshState(), loadNotes()]);
+}
+
+// ---- class picker (⌘K) ----
 let pickerIndex = 0;
-function renderPicker() {
+function pickerItems() {
   const f = $("pickerInput").value.toLowerCase();
-  const items = visibleCourses().filter((c) => `${c.id} ${c.name}`.toLowerCase().includes(f));
+  const all = [{ id: "all", name: "Everything", count: state.total }, ...state.courses.filter((c) => !c.archived)];
+  return all.filter((c) => `${c.id} ${courseName(c.id)}`.toLowerCase().includes(f));
+}
+function renderPicker() {
+  const items = pickerItems();
   pickerIndex = Math.min(pickerIndex, Math.max(0, items.length - 1));
-  $("pickerList").innerHTML = items.map((c, i) => `<button data-pick="${c.id}" class="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm ${i === pickerIndex ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300" : "hover:bg-slate-50 dark:hover:bg-slate-800"}">
-      <span class="h-2 w-2 rounded-full ${color(c.id).dot}"></span><span class="flex-1">${c.id === "all" ? "All courses" : `<span class="font-mono text-xs font-semibold">${c.id}</span> ${esc(c.name)}`}</span><span class="text-xs text-slate-400">${c.count}</span></button>`).join("")
-    || '<div class="px-3 py-6 text-center text-sm text-slate-400">No course matches. Did you mean ECON? 🤓</div>';
+  $("pickerList").innerHTML = items.map((c, i) => `<button data-pick="${esc(c.id)}" class="flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left text-sm ${i === pickerIndex ? "bg-brand-50 text-brand-700 dark:bg-brand-500/15 dark:text-brand-200" : "hover:bg-slate-50 dark:hover:bg-ink-700"}">
+      <span class="grid h-8 w-8 place-items-center rounded-xl ${palette(c.id).tile}">${iconFor(c.id)}</span><span class="flex-1 font-bold">${esc(courseName(c.id))}${c.id !== "all" && c.id !== "unsorted" ? ` <span class="font-mono text-[11px] font-semibold text-slate-400">${esc(c.id)}</span>` : ""}</span><span class="text-xs font-bold text-slate-400">${c.count}</span></button>`).join("")
+    || '<div class="px-3 py-6 text-center text-sm text-slate-400">No class matches. Did you mean ECON? 🤓</div>';
   return items;
 }
 function openPicker() {
-  $("picker").classList.remove("hidden");
-  $("picker").classList.add("flex");
+  $("picker").classList.remove("hidden"); $("picker").classList.add("flex");
   $("pickerInput").value = "";
-  pickerIndex = Math.max(0, visibleCourses().findIndex((c) => c.id === state.course));
-  renderPicker();
-  $("pickerInput").focus();
+  pickerIndex = Math.max(0, pickerItems().findIndex((c) => c.id === state.course));
+  renderPicker(); $("pickerInput").focus();
 }
 function closePicker() { $("picker").classList.add("hidden"); $("picker").classList.remove("flex"); }
 function pick(id) { closePicker(); if (id) selectCourse(id); }
 
-
-// ---- manage courses ----
+// ---- manage classes ----
 function renderManage(error = "") {
-  const rows = state.courses.filter((c) => c.id !== "unsorted").map((c) => `<div class="flex items-center gap-3 rounded-lg px-3 py-2 ${c.archived ? "opacity-50" : ""}">
-      <span class="h-2.5 w-2.5 shrink-0 rounded-full ${color(c.id).dot}"></span>
-      <div class="min-w-0 flex-1"><div class="truncate text-sm"><span class="font-mono text-xs font-semibold">${esc(c.id)}</span> ${esc(c.name)}</div>
-        <div class="text-[11px] text-slate-400">${esc(state.profiles.find((p) => p.id === c.profile)?.label ?? c.profile)}${c.semester ? " · " + esc(c.semester) : ""} · ${c.count} notes</div></div>
-      <button data-archive="${esc(c.id)}" data-to="${c.archived ? "0" : "1"}" ${state.editable ? "" : "disabled"} class="rounded-md border border-slate-200 px-2 py-1 text-xs hover:bg-slate-100 disabled:opacity-40 dark:border-slate-700 dark:hover:bg-slate-800">${c.archived ? "Restore" : "Archive"}</button></div>`).join("");
+  const rows = state.courses.filter((c) => c.id !== "unsorted").map((c) => `<div class="flex items-center gap-3 rounded-2xl px-3 py-2 ${c.archived ? "opacity-50" : ""}">
+      <span class="grid h-9 w-9 shrink-0 place-items-center rounded-xl ${palette(c.id).tile}">${iconFor(c.id)}</span>
+      <div class="min-w-0 flex-1"><div class="truncate text-sm font-bold">${esc(c.name)} <span class="font-mono text-[11px] font-semibold text-slate-400">${esc(c.id)}</span></div>
+        <div class="text-[11px] text-slate-400">${esc(state.profiles.find((p) => p.id === c.profile)?.label ?? c.profile)}${c.semester ? " · " + esc(c.semester) : ""} · ${plural(c.count, "note")}</div></div>
+      <button data-archive="${esc(c.id)}" data-to="${c.archived ? "0" : "1"}" ${state.editable ? "" : "disabled"} class="rounded-lg border border-slate-200 px-3 py-1 text-xs font-bold hover:bg-slate-50 disabled:opacity-40 dark:border-ink-600 dark:hover:bg-ink-700">${c.archived ? "Restore" : "Archive"}</button></div>`).join("");
   $("manageList").innerHTML = rows;
   $("manageNote").classList.toggle("hidden", state.editable);
   $("manageForm").classList.toggle("hidden", !state.editable);
   $("profile").innerHTML = state.profiles.map((p) => `<option value="${p.id}">${esc(p.label)}</option>`).join("");
   $("manageError").textContent = error;
 }
-async function openManage() {
-  await refreshState();
-  renderManage();
-  $("manage").classList.remove("hidden");
-  $("manage").classList.add("flex");
-}
+async function openManage() { await refreshState(); renderManage(); $("manage").classList.remove("hidden"); $("manage").classList.add("flex"); }
 function closeManage() { $("manage").classList.add("hidden"); $("manage").classList.remove("flex"); }
 async function saveCourse(method, url, body) {
   const res = await fetch(url, { method, headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) return renderManage(data.error || "Something went wrong.");
-  if (body.archived && state.course === url.split("/").pop()) state.course = "all";
+  if (body.archived && state.course === decodeURIComponent(url.split("/").pop())) state.course = "all";
   await selectCourse(state.course);
   renderManage();
 }
+
+// ---- doctor ----
+const STATUS_UI = {
+  ok: { icon: "✓", cls: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300" },
+  warn: { icon: "!", cls: "bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300" },
+  fail: { icon: "✗", cls: "bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-300" },
+};
+async function runDoctorUi(deep = false) {
+  $("doctor").classList.remove("hidden"); $("doctor").classList.add("flex");
+  $("doctorSummary").textContent = deep ? "Running a deep check (asks Claude one tiny question)…" : "Checking your setup…";
+  $("doctorList").innerHTML = '<div class="flex items-center gap-2 px-6 py-6 text-sm text-slate-400"><span class="dots"><span></span><span></span><span></span></span>This can take up to 20 seconds.</div>';
+  $("doctorAgain").disabled = $("doctorDeep").disabled = true;
+  try {
+    const checks = await fetch(`/api/doctor${deep ? "?deep=1" : ""}`).then((r) => r.json());
+    const n = (s) => checks.filter((c) => c.status === s).length;
+    $("doctorSummary").textContent = n("fail") ? `${plural(n("fail"), "problem")} to fix` : n("warn") ? `Working, with ${plural(n("warn"), "thing")} to look at` : "Everything looks good ✨";
+    $("doctorList").innerHTML = checks.map((c) => `<div class="flex gap-3 px-6 py-3.5">
+        <span class="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-extrabold ${STATUS_UI[c.status].cls}">${STATUS_UI[c.status].icon}</span>
+        <div class="min-w-0 flex-1"><div class="text-sm font-bold">${esc(c.label)}</div>
+          <div class="text-xs text-slate-500 dark:text-slate-400">${esc(c.detail)}</div>
+          ${c.fix ? `<div class="mt-1.5 rounded-lg bg-slate-50 px-3 py-2 text-xs font-medium text-slate-700 dark:bg-ink-700 dark:text-slate-200">${esc(c.fix)}</div>` : ""}</div></div>`).join("");
+  } catch {
+    $("doctorSummary").textContent = "Couldn't reach the StudyDeck server.";
+    $("doctorList").innerHTML = "";
+  }
+  $("doctorAgain").disabled = $("doctorDeep").disabled = false;
+}
+function closeDoctor() { $("doctor").classList.add("hidden"); $("doctor").classList.remove("flex"); }
+
+// ---- events ----
+$("courses").addEventListener("click", (e) => { const b = e.target.closest("[data-course]"); if (b) selectCourse(b.dataset.course); });
+$("scopeBtn").addEventListener("click", () => { if (innerWidth < 768) openPicker(); });
+document.querySelectorAll(".tab").forEach((t) => t.addEventListener("click", () => setView(t.dataset.view)));
+$("messages").addEventListener("click", (e) => {
+  const go = e.target.closest("[data-view-go]");
+  if (go) return setView(go.dataset.viewGo);
+  const b = e.target.closest(".cite, .cite-foot");
+  if (!b) return;
+  hidePreview();
+  if (b.dataset.id) openSource(b.dataset.id, b.dataset.quote);
+});
+$("messages").addEventListener("mouseover", (e) => { const b = e.target.closest(".cite"); if (b && b !== previewFor) showPreview(b); });
+$("messages").addEventListener("mouseout", (e) => { if (e.target.closest(".cite") && !e.relatedTarget?.closest?.(".cite")) hidePreview(); });
+$("messages").addEventListener("scroll", hidePreview);
+$("form").addEventListener("submit", (e) => { e.preventDefault(); const q = $("q").value.trim(); if (q) { $("q").value = ""; ask(q); } });
+$("tryRow").addEventListener("click", async (e) => {
+  const b = e.target.closest("[data-try]");
+  if (!b || state.busy) return;
+  const t = suggestions()[+b.dataset.try];
+  if (t.course !== state.course) await selectCourse(t.course);
+  ask(t.q);
+});
+$("notesSearch").addEventListener("input", renderNotes);
+$("notesGrid").addEventListener("click", (e) => { const b = e.target.closest("[data-open]"); if (b) openSource(b.dataset.open); });
+$("notesGrid").addEventListener("change", (e) => { const s = e.target.closest("[data-move]"); if (s && s.value) moveNoteTo(s.dataset.move, s.value); });
+$("moveSelect").addEventListener("change", (e) => { if (openNoteId) moveNoteTo(openNoteId, e.target.value); });
+$("closeSource").addEventListener("click", closeSource);
+$("clearBtn").addEventListener("click", async () => {
+  if (!confirm(`Clear the chat for ${courseName(state.course)}?`)) return;
+  await fetch(`/api/chats/${encodeURIComponent(state.course)}`, { method: "DELETE" });
+  selectCourse(state.course);
+});
+for (const id of ["demo", "demoMobile"]) {
+  $(id).addEventListener("change", async (e) => {
+    await fetch("/api/settings", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ demo: e.target.checked }) });
+    noteCache.clear(); closeSource(); closePicker();
+    if (state.course !== "all") state.course = "all";
+    selectCourse("all");
+  });
+}
+document.querySelectorAll(".theme-toggle").forEach((b) => b.addEventListener("click", () => {
+  const dark = document.documentElement.classList.toggle("dark");
+  try { localStorage.setItem("theme", dark ? "dark" : "light"); } catch {}
+}));
+$("granolaCard").addEventListener("click", (e) => {
+  if (e.target.closest("#connectBtn")) connectGranola();
+  if (e.target.closest("#syncBtn")) runGranolaSync();
+  if (e.target.closest("#disconnectBtn") && confirm("Disconnect Granola? Your synced notes stay; you can reconnect any time.")) {
+    fetch("/api/granola/disconnect", { method: "POST" }).then(() => { G.connected = false; G.msg = ""; G.detail = ""; G.last = null; renderGranola(); });
+  }
+});
 $("manageBtn").addEventListener("click", openManage);
 $("closeManage").addEventListener("click", closeManage);
 $("manage").addEventListener("click", (e) => { if (e.target === $("manage")) closeManage(); });
@@ -373,100 +672,11 @@ $("manageForm").addEventListener("submit", async (e) => {
   await saveCourse("POST", "/api/courses", { id: $("courseId").value, name: $("courseName").value, semester: $("courseSemester").value, profile: $("profile").value });
   if (!$("manageError").textContent) $("manageForm").reset();
 });
-
-// ---- doctor ----
-const STATUS_UI = {
-  ok: { icon: "✓", cls: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300" },
-  warn: { icon: "!", cls: "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300" },
-  fail: { icon: "✗", cls: "bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-300" },
-};
-async function runDoctorUi(deep = false) {
-  $("doctor").classList.remove("hidden");
-  $("doctor").classList.add("flex");
-  $("doctorSummary").textContent = deep ? "Running a deep check (asks Claude one tiny question)…" : "Checking your setup…";
-  $("doctorList").innerHTML = '<div class="flex items-center gap-2 px-5 py-6 text-sm text-slate-400"><span class="dots"><span></span><span></span><span></span></span>This can take up to 20 seconds.</div>';
-  $("doctorAgain").disabled = $("doctorDeep").disabled = true;
-  try {
-    const checks = await fetch(`/api/doctor${deep ? "?deep=1" : ""}`).then((r) => r.json());
-    const n = (s) => checks.filter((c) => c.status === s).length;
-    $("doctorSummary").textContent = n("fail") ? `${n("fail")} problem${n("fail") === 1 ? "" : "s"} to fix` : n("warn") ? `Working, with ${n("warn")} thing${n("warn") === 1 ? "" : "s"} to look at` : "Everything looks good ✨";
-    $("doctorList").innerHTML = checks.map((c) => `<div class="flex gap-3 px-5 py-3">
-        <span class="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-xs font-bold ${STATUS_UI[c.status].cls}">${STATUS_UI[c.status].icon}</span>
-        <div class="min-w-0 flex-1"><div class="text-sm font-medium">${esc(c.label)}</div>
-          <div class="text-xs text-slate-500 dark:text-slate-400">${esc(c.detail)}</div>
-          ${c.fix ? `<div class="mt-1.5 rounded-md bg-slate-50 px-2.5 py-1.5 text-xs text-slate-700 dark:bg-slate-800 dark:text-slate-200">${esc(c.fix)}</div>` : ""}</div></div>`).join("");
-  } catch (e) {
-    $("doctorSummary").textContent = "Couldn't reach the StudyDeck server.";
-    $("doctorList").innerHTML = "";
-  }
-  $("doctorAgain").disabled = $("doctorDeep").disabled = false;
-}
-function closeDoctor() { $("doctor").classList.add("hidden"); $("doctor").classList.remove("flex"); }
 $("doctorBtn").addEventListener("click", () => runDoctorUi());
 $("doctorAgain").addEventListener("click", () => runDoctorUi());
 $("doctorDeep").addEventListener("click", () => runDoctorUi(true));
 $("closeDoctor").addEventListener("click", closeDoctor);
 $("doctor").addEventListener("click", (e) => { if (e.target === $("doctor")) closeDoctor(); });
-
-// ---- events ----
-$("courses").addEventListener("click", (e) => { const b = e.target.closest("[data-course]"); if (b) selectCourse(b.dataset.course); });
-$("scopeBtn").addEventListener("click", () => { if (innerWidth < 768) openPicker(); });
-$("form").addEventListener("submit", (e) => { e.preventDefault(); const q = $("q").value.trim(); if (q) { $("q").value = ""; ask(q); } });
-$("tryRow").addEventListener("click", async (e) => {
-  const b = e.target.closest("[data-try]");
-  if (!b || state.busy) return;
-  const t = TRY_ASKING[+b.dataset.try];
-  if (t.course !== state.course) await selectCourse(t.course);
-  ask(t.q);
-});
-$("messages").addEventListener("click", (e) => {
-  const b = e.target.closest(".cite");
-  if (!b) return;
-  hidePreview();
-  if (b.dataset.id) openSource(b.dataset.id, b.dataset.quote);
-});
-$("messages").addEventListener("mouseover", (e) => { const b = e.target.closest(".cite"); if (b && b !== previewFor) showPreview(b); });
-$("messages").addEventListener("mouseout", (e) => { if (e.target.closest(".cite") && !e.relatedTarget?.closest?.(".cite")) hidePreview(); });
-$("messages").addEventListener("scroll", hidePreview);
-$("closeSource").addEventListener("click", closeSource);
-$("clearBtn").addEventListener("click", async () => {
-  if (!confirm(`Clear the chat for ${courseName(state.course)}?`)) return;
-  await fetch(`/api/chats/${encodeURIComponent(state.course)}`, { method: "DELETE" });
-  selectCourse(state.course);
-});
-for (const id of ["demo", "demoMobile"]) {
-  $(id).addEventListener("change", async (e) => {
-    await fetch("/api/settings", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ demo: e.target.checked }) });
-    noteCache.clear();
-    closeSource();
-    selectCourse(state.course);
-  });
-}
-document.querySelectorAll(".theme-toggle").forEach((b) => b.addEventListener("click", () => {
-  const dark = document.documentElement.classList.toggle("dark");
-  try { localStorage.setItem("theme", dark ? "dark" : "light"); } catch {}
-}));
-$("syncBtn").addEventListener("click", async () => {
-  const s = $("syncStatus");
-  $("syncBtn").disabled = true;
-  $("syncBtn").innerHTML = '<span class="dots"><span></span><span></span><span></span></span> Syncing';
-  s.classList.remove("hidden");
-  s.textContent = "Pulling the last 14 days from Granola. This can take a minute or two…";
-  try {
-    const r = await fetch("/api/sync", { method: "POST" }).then((r) => r.json());
-    if (r.error) throw new Error(r.error);
-    s.textContent = [r.added.length || r.moved.length ? `✅ Added ${r.added.length}, sorted ${r.moved.length}` : "✅ Already up to date",
-      ...r.added.map((a) => `+ ${a.course}: ${a.title}`), ...r.moved.map((a) => `→ ${a.course}: ${a.title} (sorted)`), r.skipped.length ? `· ${r.skipped.length} skipped (already synced or empty)` : "",
-      ...r.errors.map((e) => `⚠ ${e.title}: ${e.error}`)].filter(Boolean).join("\n");
-    noteCache.clear();
-    await selectCourse(state.course);
-  } catch (e) {
-    s.textContent = `😕 Sync didn't work: ${e.message}`;
-  }
-  $("syncBtn").disabled = false;
-  $("syncBtn").textContent = "Sync from Granola";
-});
-
 $("pickerInput").addEventListener("input", () => { pickerIndex = 0; renderPicker(); });
 $("pickerList").addEventListener("click", (e) => { const b = e.target.closest("[data-pick]"); if (b) pick(b.dataset.pick); });
 $("picker").addEventListener("click", (e) => { if (e.target === $("picker")) closePicker(); });
@@ -475,12 +685,20 @@ document.addEventListener("keydown", (e) => {
   if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") { e.preventDefault(); pickerOpen ? closePicker() : openPicker(); return; }
   if (pickerOpen) {
     if (e.key === "Escape") closePicker();
-    if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); pickerIndex += e.key === "ArrowDown" ? 1 : -1; pickerIndex = Math.max(0, pickerIndex); renderPicker(); }
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); pickerIndex = Math.max(0, pickerIndex + (e.key === "ArrowDown" ? 1 : -1)); renderPicker(); }
     if (e.key === "Enter") { e.preventDefault(); pick(renderPicker()[pickerIndex]?.id); }
     return;
   }
   if (e.key === "Escape") { closeSource(); closeManage(); closeDoctor(); }
-  if (e.key === "/" && document.activeElement !== $("q")) { e.preventDefault(); $("q").focus(); }
+  const typing = ["INPUT", "SELECT", "TEXTAREA"].includes(document.activeElement?.tagName);
+  if (e.key === "/" && !typing) { e.preventDefault(); setView("chat"); $("q").focus(); }
+});
+// Notes can change while you're away (background sync), so refresh when you come back.
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && !state.busy) { noteCache.clear(); Promise.all([refreshState(), loadNotes(), refreshGranola()]); }
 });
 
-selectCourse("all").then(() => $("q").focus());
+try { state.view = localStorage.getItem("view") === "notes" ? "notes" : "chat"; } catch {}
+renderGranola();
+refreshGranola();
+selectCourse("all").then(() => { if (state.view === "chat") $("q").focus(); });

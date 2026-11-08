@@ -22,6 +22,7 @@ export function buildSystemPrompt(useGeneralKnowledge: boolean, courseGuidance =
     "3. Be concise and direct. Open with the answer in one or two sentences. Add at most five short bullets only if they help.",
     "   Never copy the notes' headings or retell whole sections. For \"what did we cover\" questions, give the main topics as one-line bullets.",
     "4. Put a citation at the end of a sentence or bullet. Do not repeat the same citation after every line; cite each source once per paragraph or list.",
+    "   Never write a sentence whose only job is to say which note something came from; the citation already says that.",
   ];
   if (useGeneralKnowledge) {
     base.push(
