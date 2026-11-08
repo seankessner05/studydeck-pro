@@ -1,10 +1,11 @@
 import express from "express";
+import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { LOGIN_FIX, checkAuth, checkClaude, friendlyError, runClaude, type Runner } from "./claude.js";
 import { DEFAULT_COURSES, PALETTE, PROFILES, activeIdsOf, idsOf } from "./courses.js";
-import { NOTES_DIR, SAMPLE_DIR, listCourses, loadNotes, readNote, citationLabel, resolveNotesDir } from "./notes.js";
+import { MoveError, NOTES_DIR, SAMPLE_DIR, listCourses, loadNotes, moveNote, noteSnippet, readNote, citationLabel, resolveNotesDir } from "./notes.js";
 import { PROFILE_INFO } from "./profiles.js";
 import { RegistryError, addCourse, loadRegistry, updateCourse } from "./registry.js";
 import { type ChatTurn } from "./prompt.js";
@@ -39,6 +40,38 @@ export function createApp(deps: AppDeps) {
   const granola = deps.granola ?? new GranolaConnection(path.join(deps.dataDir, "granola-auth.json"));
   const redirectFor = (req: express.Request) => `${req.protocol}://${req.get("host")}/api/granola/callback`;
   let syncing = false;
+  const lastSyncFile = path.join(deps.dataDir, "last-sync.json");
+  const readLastSync = () => {
+    try {
+      return JSON.parse(fs.readFileSync(lastSyncFile, "utf8"));
+    } catch {
+      return undefined;
+    }
+  };
+
+  class SyncBusyError extends Error {}
+  async function performSync(redirect: string, onProgress?: (m: string) => void) {
+    if (syncing) throw new SyncBusyError();
+    syncing = true;
+    try {
+      const result = await granola.withApi(redirect, (api) =>
+        runDirectSync({ api, notesDir: deps.notesDir, courses: loadRegistry(deps.dataDir), onProgress }),
+      );
+      fs.mkdirSync(deps.dataDir, { recursive: true });
+      fs.writeFileSync(
+        lastSyncFile,
+        JSON.stringify({
+          at: new Date().toISOString(), scanned: result.scanned, added: result.added.length, updated: result.updated.length,
+          moved: result.moved.length, errors: result.errors.length, titles: [...result.added, ...result.updated].slice(0, 30).map((x) => `${x.course}: ${x.title}`),
+        }),
+      );
+      return result;
+    } finally {
+      syncing = false;
+    }
+  }
+  // Called by main() on a timer; quiet when Granola isn't connected or a sync is already running.
+  app.locals.autoSync = (redirect: string) => (granola.isConnected() ? performSync(redirect).catch(() => undefined) : Promise.resolve(undefined));
   app.use(express.json({ limit: "1mb" }));
   app.use(express.static(path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "public")));
 
@@ -82,6 +115,30 @@ export function createApp(deps: AppDeps) {
     const note = readNote(req.params.course, req.params.file, c.dir, idsOf(c.courses));
     if (!note) return res.status(404).json({ error: "Note not found" });
     res.json({ ...note, label: citationLabel(note) });
+  });
+
+  app.get("/api/notes", (req, res) => {
+    const c = current();
+    const course = String(req.query.course ?? "all");
+    if (course !== "all" && !idsOf(c.courses).includes(course)) return res.status(404).json({ error: "Unknown course" });
+    const notes = loadNotes(course, c.dir, activeIdsOf(c.courses));
+    res.json(
+      notes
+        .map((n) => ({ id: n.id, course: n.course, file: n.file, date: n.date, title: n.title, sample: n.sample, snippet: noteSnippet(n.body), words: n.body.split(/\s+/).length }))
+        .sort((a, b) => b.date.localeCompare(a.date) || a.title.localeCompare(b.title)),
+    );
+  });
+
+  app.patch("/api/notes/:course/:file", (req, res) => {
+    const c = current();
+    if (c.source !== "notes") return res.status(409).json({ error: "Only your synced notes can be moved, not the sample notes." });
+    try {
+      const note = moveNote(c.dir, idsOf(c.courses), req.params.course, req.params.file, String(req.body?.course ?? ""));
+      res.json({ ...note, label: citationLabel(note) });
+    } catch (e) {
+      if (e instanceof MoveError) return res.status(400).json({ error: e.message });
+      throw e;
+    }
   });
 
   app.get("/api/chats/:course", (req, res) => {
@@ -144,7 +201,7 @@ export function createApp(deps: AppDeps) {
     res.json(await runDoctor({ dataDir: deps.dataDir, notesDir: deps.notesDir, courses: loadRegistry(deps.dataDir), runner: deps.runner }, { deep: req.query.deep === "1" }));
   });
 
-  app.get("/api/granola/status", (_req, res) => res.json({ connected: granola.isConnected(), syncing }));
+  app.get("/api/granola/status", (_req, res) => res.json({ connected: granola.isConnected(), syncing, last: readLastSync() }));
 
   app.post("/api/granola/connect", async (req, res) => {
     try {
@@ -179,18 +236,13 @@ export function createApp(deps: AppDeps) {
   app.post("/api/sync", async (req, res) => {
     if (syncing) return res.status(409).json({ error: "A sync is already running." });
     if (!granola.isConnected()) return res.status(409).json({ error: "Connect Granola first.", needsConnect: true });
-    syncing = true;
     res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" });
     const send = (event: string, data: unknown) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
     try {
-      const result = await granola.withApi(redirectFor(req), (api) =>
-        runDirectSync({ api, notesDir: deps.notesDir, courses: loadRegistry(deps.dataDir), onProgress: (m) => send("progress", m) }),
-      );
-      send("done", result);
+      send("done", await performSync(redirectFor(req), (m) => send("progress", m)));
     } catch (e) {
       send("error", { message: granolaMessage(e), needsConnect: e instanceof NotConnectedError });
     } finally {
-      syncing = false;
       res.end();
     }
   });
@@ -206,7 +258,11 @@ function main() {
   }
   const port = Number(process.env.PORT ?? 3000);
   const app = createApp({ runner: runClaude, notesDir: NOTES_DIR, sampleDir: SAMPLE_DIR, dataDir: DATA_DIR });
+  const redirect = `http://localhost:${port}/api/granola/callback`;
   app.listen(port, "127.0.0.1", () => {
+    // Keep notes fresh without any clicking: shortly after start, then every 30 minutes. Free (no AI involved).
+    setTimeout(() => app.locals.autoSync(redirect), 5_000).unref();
+    setInterval(() => app.locals.autoSync(redirect), 30 * 60_000).unref();
     console.log(`StudyDeck running at http://localhost:${port}  (${c.version})`);
     if (!checkAuth().loggedIn) console.warn(`\n⚠ Claude Code isn't logged in, so questions will fail until you sign in. ${LOGIN_FIX}\n`);
   });

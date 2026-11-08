@@ -76,7 +76,10 @@ export function loadNotes(course: string, dir = NOTES_DIR, ids: string[] = DEFAU
 
 /** Every course with its note count. The total only counts active (non-archived) courses, matching the "all" scope. */
 export function listCourses(dir = NOTES_DIR, courses: Course[] = DEFAULT_COURSES) {
-  const withCounts = courses.map((c) => ({ ...c, count: loadCourseNotes(c.id, dir).length }));
+  const withCounts = courses.map((c) => {
+    const notes = loadCourseNotes(c.id, dir);
+    return { ...c, count: notes.length, latest: notes.map((n) => n.date).sort().at(-1) };
+  });
   const active = new Set(activeIdsOf(courses));
   return { courses: withCounts, total: withCounts.filter((c) => active.has(c.id)).reduce((n, c) => n + c.count, 0) };
 }
@@ -91,4 +94,45 @@ export function readNote(course: string, file: string, dir = NOTES_DIR, ids: str
 
 export function citationLabel(n: Note): string {
   return `${n.course} ${n.date}: ${n.title}`;
+}
+
+/** A short plain-text preview of a note: the first real sentence, without markdown or the title heading. */
+export function noteSnippet(body: string, max = 150): string {
+  const picked: string[] = [];
+  for (const raw of body.split("\n")) {
+    const l = raw.trim();
+    if (!l || /^#{1,2}\s/.test(l) || /^>\s*\*\*SAMPLE/.test(l) || /^\|?\s*:?-{2,}/.test(l)) continue;
+    let text: string;
+    if (l.startsWith("|")) {
+      // table row: "cue: note"; skip the Cue | Notes header row
+      const cells = l.split("|").map((c) => c.trim()).filter(Boolean);
+      if (cells.length && cells.every((c) => /^(cue|notes?|key terms?)$/i.test(c))) continue;
+      text = cells.length > 1 ? `${cells[0]}: ${cells.slice(1).join(" ")}` : cells[0] ?? "";
+    } else {
+      text = l.replace(/^#{3,}\s+/, "").replace(/^[-*]\s+/, "");
+    }
+    text = text.replace(/\*\*(.+?)\*\*/g, "$1").replace(/\s+/g, " ").trim();
+    if (text) picked.push(text);
+    if (picked.join(" — ").length >= max) break;
+  }
+  const out = picked.join(" — ");
+  return out.length > max ? out.slice(0, max - 1).trimEnd() + "…" : out;
+}
+
+export class MoveError extends Error {}
+
+/** Re-file a note under another course: moves the file and rewrites its `course:` line. */
+export function moveNote(dir: string, ids: string[], course: string, file: string, target: string): Note {
+  if (!ids.includes(course) || !ids.includes(target)) throw new MoveError("Unknown course.");
+  const from = path.join(dir, course, file);
+  if (file !== path.basename(file) || !file.endsWith(".md") || !fs.existsSync(from)) throw new MoveError("Note not found.");
+  if (course === target) return parseNote(course, file, fs.readFileSync(from, "utf8"));
+  const to = path.join(dir, target, file);
+  if (fs.existsSync(to)) throw new MoveError(`${target} already has a note with that file name.`);
+  let raw = fs.readFileSync(from, "utf8");
+  raw = /^---\r?\n[\s\S]*?^course:/m.test(raw) ? raw.replace(/^course:.*$/m, `course: ${target}`) : `---\ncourse: ${target}\n---\n${raw}`;
+  fs.mkdirSync(path.dirname(to), { recursive: true });
+  fs.writeFileSync(to, raw, "utf8");
+  fs.rmSync(from);
+  return parseNote(target, file, raw);
 }

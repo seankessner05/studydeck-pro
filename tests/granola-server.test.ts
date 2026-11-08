@@ -95,6 +95,32 @@ describe("granola connection and sync API", () => {
     expect((again[1] as any).added).toEqual([]);
   });
 
+  it("remembers the last sync, lists notes with previews, and files an Inbox note under a course", async () => {
+    const st = await (await fetch(`${base}/api/granola/status`)).json();
+    expect(st.last).toMatchObject({ scanned: 3, added: 0 });
+    const list = await (await fetch(`${base}/api/notes?course=all`)).json();
+    expect(list.map((n: any) => n.course).sort()).toEqual(["ECON196", "ECON301", "unsorted"]);
+    expect(list.find((n: any) => n.title === "Isoquants")).toMatchObject({ snippet: expect.stringContaining("point"), date: "2026-11-02" });
+    expect((await fetch(`${base}/api/notes?course=NOPE`)).status).toBe(404);
+
+    const move = await fetch(`${base}/api/notes/unsorted/2026-11-02_visa-appointment.md`, {
+      method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ course: "MGMT220" }),
+    });
+    expect(move.status).toBe(200);
+    expect((await move.json()).id).toBe("MGMT220/2026-11-02_visa-appointment.md");
+    expect(fs.existsSync(path.join(notesDir, "MGMT220", "2026-11-02_visa-appointment.md"))).toBe(true);
+    const bad = await fetch(`${base}/api/notes/MGMT220/2026-11-02_visa-appointment.md`, {
+      method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ course: "NOPE" }),
+    });
+    expect(bad.status).toBe(400);
+  });
+
+  it("keeps a moved note where you put it on the next sync", async () => {
+    const again = (await sse(await post("/api/sync"))).at(-1)!;
+    expect((again[1] as any).moved).toEqual([]);
+    expect(fs.existsSync(path.join(notesDir, "unsorted", "2026-11-02_visa-appointment.md"))).toBe(false);
+  });
+
   it("does not run two syncs at once", async () => {
     let open!: () => void;
     fake.gate = new Promise<void>((r) => (open = r));

@@ -19,17 +19,19 @@ export function buildSystemPrompt(useGeneralKnowledge: boolean, courseGuidance =
     "   - COURSE, date and Topic must be copied from the note's label attribute.",
     "   - The quote must be 3 to 12 words copied exactly from the note passage that supports the claim.",
     "   - Example: [ECON300 2026-10-14: Fiscal Multipliers | \"1 / (1 − 0.8) = 5\"]",
-    "3. Keep answers concise and clear. Use short paragraphs or bullets.",
+    "3. Be concise and direct. Open with the answer in one or two sentences. Add at most five short bullets only if they help.",
+    "   Never copy the notes' headings or retell whole sections. For \"what did we cover\" questions, give the main topics as one-line bullets.",
+    "4. Put a citation at the end of a sentence or bullet. Do not repeat the same citation after every line; cite each source once per paragraph or list.",
   ];
   if (useGeneralKnowledge) {
     base.push(
-      "4. The student has enabled general knowledge. Use the notes first. You may add information from outside the notes,",
+      "5. The student has enabled general knowledge. Use the notes first. You may add information from outside the notes,",
       "   but every outside sentence MUST begin with the label \"(General knowledge)\" and must not carry a note citation.",
       `   If the notes cover nothing relevant, say \"${NOT_IN_NOTES}\" and then give the outside answer labeled as general knowledge.`,
     );
   } else {
     base.push(
-      `4. If the notes do not cover the question, or only partly cover it, reply \"${NOT_IN_NOTES}\" for the missing part.`,
+      `5. If the notes do not cover the question, or only partly cover it, reply \"${NOT_IN_NOTES}\" for the missing part.`,
       "   Never fill gaps from general knowledge, and never guess. A short \"Not in your notes\" answer is a correct answer.",
     );
   }
