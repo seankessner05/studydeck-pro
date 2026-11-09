@@ -32,6 +32,8 @@ export interface DoctorDeps {
   courses: Course[];
   /** Used only for the deep check: one real, tiny question to Claude. */
   runner?: Runner;
+  /** AI usage for the Doctor's usage row. */
+  usage?: () => { today: { calls: number; costUsd: number }; week: { calls: number; costUsd: number }; paused: boolean };
   /** Environment to inspect for API keys. Defaults to process.env. */
   env?: NodeJS.ProcessEnv;
   /** Throws if full-text search is unavailable. Injectable for tests. */
@@ -65,10 +67,9 @@ export function defaultSqliteProbe() {
   }
 }
 
-/** Node 22.13+ ships SQLite unflagged. */
+/** Node 24+: the study scheduler (ts-fsrs 6) requires it, and Node's built-in SQLite needs 22.13 or newer anyway. */
 export function nodeIsNewEnough(version: string): boolean {
-  const [major, minor] = version.replace(/^v/, "").split(".").map(Number);
-  return major > 22 || (major === 22 && minor >= 13);
+  return Number(version.replace(/^v/, "").split(".")[0]) >= 24;
 }
 
 const ok = (id: string, label: string, detail: string): DoctorCheck => ({ id, label, status: "ok", detail });
@@ -96,7 +97,7 @@ export async function runDoctor(deps: DoctorDeps, opts: { deep?: boolean } = {})
     const v = deps.nodeVersion ?? process.versions.node;
     return nodeIsNewEnough(v)
       ? ok("node", "Node.js", `v${v.replace(/^v/, "")}`)
-      : bad("node", "Node.js", "fail", `v${v.replace(/^v/, "")} is too old for the built-in SQLite`, "Install Node 22.13 or newer (24 recommended) from nodejs.org.");
+      : bad("node", "Node.js", "fail", `v${v.replace(/^v/, "")} is too old (the study scheduler needs Node 24)`, "Install Node 24 or newer from nodejs.org.");
   };
 
   const sqliteCheck = async (): Promise<DoctorCheck> => {
@@ -193,8 +194,17 @@ export async function runDoctor(deps: DoctorDeps, opts: { deep?: boolean } = {})
       : bad("ytdlp", "YouTube transcripts (optional)", "warn", "yt-dlp isn't installed. It's only needed for YouTube sources, which arrive in a later update.", "Run: pip3 install --user yt-dlp");
   };
 
-  const groups = await Promise.all([nodeCheck(), sqliteCheck(), claudeChecks(), granolaCheck(), notesCheck(), dataCheck(), ytCheck()]);
-  return groups.flat();
+  const usageCheck = async (): Promise<DoctorCheck | undefined> => {
+    if (!deps.usage) return undefined;
+    const u = deps.usage();
+    const detail = `${u.today.calls} ${u.today.calls === 1 ? "call" : "calls"} to Claude today, ${u.week.calls} in the last 7 days (about $${u.week.costUsd.toFixed(2)} at API rates; on a subscription this counts toward your allowance and isn't charged).`;
+    return u.paused
+      ? bad("usage", "AI usage", "warn", `AI is paused: chat and generation are off. ${detail}`, "Turn it back on with the AI switch in the sidebar.")
+      : ok("usage", "AI usage", detail);
+  };
+
+  const groups = await Promise.all([nodeCheck(), sqliteCheck(), claudeChecks(), usageCheck(), granolaCheck(), notesCheck(), dataCheck(), ytCheck()]);
+  return groups.flat().filter((c): c is DoctorCheck => !!c);
 }
 
 export function summarizeChecks(checks: DoctorCheck[]): { ok: number; warn: number; fail: number } {

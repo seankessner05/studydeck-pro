@@ -47,9 +47,9 @@ export function clearChat(dataDir: string, course: string) {
   saveChats(dataDir, store);
 }
 
-/** Consecutive days (ending today or yesterday) on which a question was asked, across all courses. */
-export function studyStreak(store: ChatStore, today = new Date()): number {
-  const days = new Set<string>();
+/** Consecutive days (ending today or yesterday) on which you studied: asked a question or reviewed a card. */
+export function studyStreak(store: ChatStore, today = new Date(), extraDays: Iterable<string> = []): number {
+  const days = new Set<string>(extraDays);
   for (const msgs of Object.values(store)) {
     for (const m of msgs) if (m.role === "user") days.add(localDay(new Date(m.createdAt)));
   }

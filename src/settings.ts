@@ -3,19 +3,25 @@ import path from "node:path";
 
 export interface Settings {
   demo: boolean;
+  /** When on, nothing asks Claude anything (chat and, later, generation and grading are all off). */
+  aiPaused: boolean;
 }
 
 const file = (dataDir: string) => path.join(dataDir, "settings.json");
 
 export function loadSettings(dataDir: string): Settings {
+  const defaults: Settings = { demo: process.env.STUDYDECK_DEMO === "1", aiPaused: false };
   try {
-    return { demo: false, ...JSON.parse(fs.readFileSync(file(dataDir), "utf8")) };
+    return { ...defaults, ...JSON.parse(fs.readFileSync(file(dataDir), "utf8")) };
   } catch {
-    return { demo: process.env.STUDYDECK_DEMO === "1" };
+    return defaults;
   }
 }
 
-export function saveSettings(dataDir: string, s: Settings) {
+/** Update some settings, keeping the rest. */
+export function saveSettings(dataDir: string, patch: Partial<Settings>): Settings {
+  const next = { ...loadSettings(dataDir), ...patch };
   fs.mkdirSync(dataDir, { recursive: true });
-  fs.writeFileSync(file(dataDir), JSON.stringify(s, null, 2));
+  fs.writeFileSync(file(dataDir), JSON.stringify(next, null, 2));
+  return next;
 }

@@ -85,10 +85,22 @@ describe("doctor", () => {
     expect(warn.fix).toContain("claude auth login");
   });
 
+  it("shows AI usage, and warns when AI is paused", async () => {
+    const usage = (paused: boolean) => () => ({ today: { calls: 2, costUsd: 0.03 }, week: { calls: 9, costUsd: 0.12 }, paused });
+    const on = byId(await runDoctor(base({ usage: usage(false) })), "usage");
+    expect(on.status).toBe("ok");
+    expect(on.detail).toContain("2 calls to Claude today, 9 in the last 7 days");
+    expect(on.detail).toContain("isn't charged");
+    const off = byId(await runDoctor(base({ usage: usage(true) })), "usage");
+    expect(off.status).toBe("warn");
+    expect(off.detail).toContain("AI is paused");
+    expect(byId(await runDoctor(base()), "usage")).toBeUndefined();
+  });
+
   it("flags a Node that is too old, and a broken SQLite", async () => {
-    expect(nodeIsNewEnough("22.13.0")).toBe(true);
     expect(nodeIsNewEnough("v24.14.1")).toBe(true);
-    expect(nodeIsNewEnough("22.12.9")).toBe(false);
+    expect(nodeIsNewEnough("24.0.0")).toBe(true);
+    expect(nodeIsNewEnough("22.13.0")).toBe(false);
     expect(nodeIsNewEnough("20.11.0")).toBe(false);
     const checks = await runDoctor(base({ nodeVersion: "20.11.0", sqliteProbe: () => { throw new Error("no such module: fts5"); } }));
     expect(byId(checks, "node").status).toBe("fail");

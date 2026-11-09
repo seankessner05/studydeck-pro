@@ -11,7 +11,10 @@ import { RegistryError, addCourse, loadRegistry, updateCourse } from "./registry
 import { type ChatTurn } from "./prompt.js";
 import { answerQuestion } from "./answer.js";
 import { appendMessage, clearChat, loadChats, studyStreak, type ChatMessage } from "./chats.js";
-import { loadSettings, saveSettings } from "./settings.js";
+import { loadSettings, saveSettings, type Settings } from "./settings.js";
+import { studyDb } from "./study/db.js";
+import { CardError, NEW_PER_DAY, accuracy, addCard, buildSession, counts, deleteCard, forecast, listCards, reviewCard, studyDays } from "./study/cards.js";
+import { recordUsage, usageSummary } from "./study/usage.js";
 import { runDoctor } from "./doctor.js";
 import { DATA_DIR } from "./paths.js";
 import { GranolaConnection, GranolaError, NotConnectedError, type GranolaService } from "./granola/api.js";
@@ -83,12 +86,16 @@ export function createApp(deps: AppDeps) {
   };
   const validCourse = (c: unknown): c is string => typeof c === "string" && (c === "all" || idsOf(current().courses).includes(c));
   // Sample-note chats are kept apart from real-note chats so a demo never mixes with real history.
+  /** Study progress for whichever notes are showing: sample practice is kept separate from the real thing. */
+  const sdb = () => studyDb(deps.dataDir, current().source === "samples");
+  const streakNow = () => studyStreak(loadChats(deps.dataDir), new Date(), studyDays(sdb()));
+  const paused = () => loadSettings(deps.dataDir).aiPaused;
   const chatKey = (course: string) => (current().source === "samples" ? `sample:${course}` : course);
 
   app.get("/api/state", (_req, res) => {
     const { demo, dir, source, courses } = current();
     res.json({
-      demo, source, editable: !demo, ...listCourses(dir, courses), streak: studyStreak(loadChats(deps.dataDir)),
+      demo, source, editable: !demo, aiPaused: paused(), ...listCourses(dir, courses), streak: streakNow(),
       profiles: PROFILES.map((id) => ({ id, label: PROFILE_INFO[id].label })), palette: PALETTE,
     });
   });
@@ -106,8 +113,10 @@ export function createApp(deps: AppDeps) {
   app.patch("/api/courses/:id", (req, res) => registryRoute(() => updateCourse(deps.dataDir, req.params.id, req.body ?? {}), res));
 
   app.post("/api/settings", (req, res) => {
-    saveSettings(deps.dataDir, { demo: !!req.body?.demo });
-    res.json({ ok: true });
+    const patch: Partial<Settings> = {};
+    if (typeof req.body?.demo === "boolean") patch.demo = req.body.demo;
+    if (typeof req.body?.aiPaused === "boolean") patch.aiPaused = req.body.aiPaused;
+    res.json({ ok: true, ...saveSettings(deps.dataDir, patch) });
   });
 
   app.get("/api/notes/:course/:file", (req, res) => {
@@ -155,6 +164,7 @@ export function createApp(deps: AppDeps) {
     if (!validCourse(course) || typeof question !== "string" || !question.trim()) {
       return res.status(400).json({ error: "course and question are required" });
     }
+    if (paused()) return res.status(409).json({ error: "AI is paused, so questions are off. Turn it back on in the sidebar." });
     const q = question.trim();
     const general = !!useGeneral;
     const key = chatKey(course);
@@ -186,6 +196,11 @@ export function createApp(deps: AppDeps) {
         citations: r.citations, notesUsed: r.notesUsed, mode: r.mode, useGeneral: general,
       };
       appendMessage(deps.dataDir, key, msg);
+      try {
+        recordUsage(sdb(), "chat", 1, r.costUsd ?? 0);
+      } catch {
+        // usage tracking must never break an answer
+      }
       send("done", { text: r.text, citations: r.citations });
     } catch (e) {
       const message = friendlyError(e);
@@ -198,8 +213,71 @@ export function createApp(deps: AppDeps) {
   });
 
   app.get("/api/doctor", async (req, res) => {
-    res.json(await runDoctor({ dataDir: deps.dataDir, notesDir: deps.notesDir, courses: loadRegistry(deps.dataDir), runner: deps.runner }, { deep: req.query.deep === "1" }));
+    const runner: typeof deps.runner = paused()
+      ? async () => {
+          throw new Error("AI is paused");
+        }
+      : deps.runner;
+    res.json(
+      await runDoctor(
+        { dataDir: deps.dataDir, notesDir: deps.notesDir, courses: loadRegistry(deps.dataDir), runner, usage: () => ({ ...usageSummary(sdb()), paused: paused() }) },
+        { deep: req.query.deep === "1" },
+      ),
+    );
   });
+
+  // ---- study: flashcards, usage ----
+  const scopeOf = (v: unknown): string | undefined => {
+    const c = typeof v === "string" && v ? v : "all";
+    return validCourse(c) ? c : undefined;
+  };
+  const studyRoute = (fn: (req: express.Request, res: express.Response) => unknown | Promise<unknown>): express.RequestHandler => async (req, res) => {
+    try {
+      await fn(req, res);
+    } catch (e) {
+      if (e instanceof CardError) return void res.status(400).json({ error: e.message });
+      res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+    }
+  };
+
+  app.get("/api/study/today", studyRoute((req, res) => {
+    const course = scopeOf(req.query.course);
+    if (!course) return res.status(404).json({ error: "Unknown class" });
+    const db = sdb();
+    res.json({ counts: counts(db, course), forecast: forecast(db, course), accuracy: accuracy(db, course), streak: streakNow(), newPerDay: NEW_PER_DAY });
+  }));
+
+  app.get("/api/study/session", studyRoute(async (req, res) => {
+    const course = scopeOf(req.query.course);
+    if (!course) return res.status(404).json({ error: "Unknown class" });
+    res.json(await buildSession(sdb(), course, new Date(), Math.min(200, Number(req.query.limit) || 50)));
+  }));
+
+  app.post("/api/study/review", studyRoute(async (req, res) => {
+    const { cardId, grade, msTaken } = req.body ?? {};
+    const result = await reviewCard(sdb(), String(cardId ?? ""), Number(grade) as 1 | 2 | 3 | 4, new Date(), Number.isFinite(msTaken) ? Number(msTaken) : undefined);
+    res.json({ ...result, streak: streakNow() });
+  }));
+
+  app.get("/api/study/cards", studyRoute((req, res) => {
+    const course = scopeOf(req.query.course);
+    if (!course) return res.status(404).json({ error: "Unknown class" });
+    res.json(listCards(sdb(), course));
+  }));
+
+  app.post("/api/study/cards", studyRoute(async (req, res) => {
+    const b = req.body ?? {};
+    if (!idsOf(current().courses).includes(String(b.course))) throw new CardError("Pick one of your classes for this card.");
+    res.json(await addCard(sdb(), { course: String(b.course), front: String(b.front ?? ""), back: String(b.back ?? ""), quote: b.quote ? String(b.quote) : null, noteId: b.noteId ? String(b.noteId) : null, section: b.section ? String(b.section) : null }));
+  }));
+
+  app.delete("/api/study/cards/:id", studyRoute((req, res) => {
+    res.json({ ok: deleteCard(sdb(), String(req.params.id)) });
+  }));
+
+  app.get("/api/usage", studyRoute((_req, res) => {
+    res.json({ ...usageSummary(sdb()), paused: paused() });
+  }));
 
   app.get("/api/granola/status", (_req, res) => res.json({ connected: granola.isConnected(), syncing, last: readLastSync() }));
 
