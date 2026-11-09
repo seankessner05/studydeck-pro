@@ -80,4 +80,60 @@ export const MIGRATIONS: Migration[] = [
       );
     `,
   },
+  {
+    version: 4,
+    name: "study: quiz questions, runs and answers",
+    sql: `
+      CREATE TABLE questions (
+        id           TEXT PRIMARY KEY,
+        course       TEXT NOT NULL,
+        note_id      TEXT,                          -- "COURSE/file.md" the question came from
+        section      TEXT,                          -- heading inside the note: the question's topic
+        kind         TEXT NOT NULL,                 -- single | multi | tf
+        stem         TEXT NOT NULL,
+        options      TEXT NOT NULL,                 -- JSON array of option texts, in the order they are shown
+        answer       TEXT NOT NULL,                 -- JSON array of the correct option indexes
+        explanation  TEXT NOT NULL,
+        quote        TEXT,                          -- verbatim receipt from the note
+        note_version TEXT,
+        created_at   INTEGER NOT NULL
+      );
+      CREATE INDEX idx_questions_course ON questions (course);
+      CREATE INDEX idx_questions_note   ON questions (note_id);
+
+      CREATE TABLE quiz_runs (
+        id          TEXT PRIMARY KEY,
+        course      TEXT NOT NULL,                  -- a class, or "all"
+        started_at  INTEGER NOT NULL,
+        finished_at INTEGER,
+        total       INTEGER NOT NULL
+      );
+
+      CREATE TABLE quiz_answers (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        run_id      TEXT NOT NULL REFERENCES quiz_runs (id) ON DELETE CASCADE,
+        question_id TEXT NOT NULL REFERENCES questions (id) ON DELETE CASCADE,
+        course      TEXT NOT NULL,
+        section     TEXT,
+        picked      TEXT NOT NULL,                  -- JSON array of the option indexes chosen
+        correct     INTEGER NOT NULL,
+        attempt     INTEGER NOT NULL,               -- 1 = first try in this run; 2+ = asked again after a miss
+        answered_at INTEGER NOT NULL,
+        ms_taken    INTEGER
+      );
+      CREATE INDEX idx_qa_question ON quiz_answers (question_id, answered_at);
+      CREATE INDEX idx_qa_time     ON quiz_answers (answered_at);
+      CREATE INDEX idx_qa_run      ON quiz_answers (run_id);
+
+      -- Which version of each lecture has been turned into questions, even when none were kept.
+      CREATE TABLE question_gen_log (
+        note_id      TEXT NOT NULL,
+        note_version TEXT NOT NULL,
+        at           INTEGER NOT NULL,
+        created      INTEGER NOT NULL,
+        calls        INTEGER NOT NULL,
+        PRIMARY KEY (note_id, note_version)
+      );
+    `,
+  },
 ];

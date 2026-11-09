@@ -6,6 +6,8 @@ import type { Note } from "../notes.js";
 import { normalize } from "../citations.js";
 import { addGeneratedCards, existingFronts, logGeneration } from "./cards.js";
 import { REJECT_LABEL, generateCardsForNote, jaccard, noteVersion, type Density } from "./cardgen.js";
+import { DoubleCheckError, Q_REJECT_LABEL, generateQuestionsForNote } from "./quizgen.js";
+import { addGeneratedQuestions, existingStems, logQuestionGeneration } from "./questions.js";
 import { keepAwake } from "./awake.js";
 import { recordUsage } from "./usage.js";
 
@@ -50,21 +52,35 @@ export interface StartOptions {
 
 const LOGIN_PROBLEM = /isn't logged in|session expired|claude.+not found|on your path/i;
 
+/** What processing one lecture produced. */
+export interface Outcome {
+  created: number;
+  duplicates: number;
+  dropped: { front: string; why: string }[];
+  calls: number;
+  costUsd: number;
+}
+
 /**
- * Generates flashcards for a set of lectures in the background, one job at a time. Progress is polled via status().
+ * Works through a set of lectures in the background, one job at a time. Progress is polled via status().
  * Each lecture is saved as soon as it finishes, so cancelling (or a crash) loses nothing already done.
+ * Subclasses decide what "processing a lecture" means (flashcards, quiz questions).
  */
-export class CardGenerationJobs {
+abstract class LectureJobs {
   private job?: JobStatus;
   private abort?: AbortController;
   /** True until every worker has stopped, even after a cancel, so a new job can't overlap a winding-down one. */
   private active = false;
 
   constructor(
-    private readonly runner: Runner,
+    protected readonly runner: Runner,
     /** Called when a job starts; returns the function that lets the Mac sleep again. Replaced in tests. */
     private readonly awake: () => () => void = keepAwake,
   ) {}
+
+  /** Shown when a second job is started: "A card generation job is already running." */
+  protected abstract readonly busyMessage: string;
+  protected abstract process(note: Note, o: StartOptions, signal: AbortSignal): Promise<Outcome>;
 
   status(): JobStatus | undefined {
     return this.job;
@@ -82,7 +98,7 @@ export class CardGenerationJobs {
   }
 
   start(o: StartOptions): JobStatus {
-    if (this.isRunning()) throw new Error("A card generation job is already running.");
+    if (this.isRunning()) throw new Error(this.busyMessage);
     const notes = [...o.notes].sort((a, b) => a.date.localeCompare(b.date) || a.title.localeCompare(b.title));
     const job: JobStatus = {
       id: `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
@@ -113,22 +129,12 @@ export class CardGenerationJobs {
         item.state = "running";
         item.startedAt = Date.now();
         try {
-          const r = await generateCardsForNote({
-            runner: this.runner, note, courses: o.courses, density: o.density, focus: o.focus,
-            existingFronts: existingFronts(o.db, note.course), signal,
-          });
-          job.totals.calls += r.calls;
-          job.totals.costUsd += r.costUsd;
-          recordUsage(o.db, "cards", r.calls, r.costUsd);
-
-          // Another lecture in this job may have just saved a similar question: check again right before saving.
-          const fresh = existingFronts(o.db, note.course);
-          const keep = r.accepted.filter((c) => !fresh.some((f) => normalize(f) === normalize(c.front) || jaccard(f, c.front) >= 0.8));
-          const late = r.accepted.length - keep.length;
-          item.created = await addGeneratedCards(o.db, note, noteVersion(note), keep);
-          logGeneration(o.db, note.id, noteVersion(note), item.created, r.calls);
-          item.duplicates = r.rejected.filter((x) => x.reason === "duplicate").length + late;
-          item.dropped = r.rejected.filter((x) => x.reason !== "duplicate").map((x) => ({ front: x.front, why: REJECT_LABEL[x.reason] + (x.detail ? ` (${x.detail})` : "") }));
+          const out = await this.process(note, o, signal);
+          item.created = out.created;
+          item.duplicates = out.duplicates;
+          item.dropped = out.dropped;
+          job.totals.calls += out.calls;
+          job.totals.costUsd += out.costUsd;
           job.totals.created += item.created;
           job.totals.duplicates += item.duplicates;
           job.totals.dropped += item.dropped.length;
@@ -153,5 +159,62 @@ export class CardGenerationJobs {
     if (job.status === "running") job.status = "done";
     job.finishedAt = Date.now();
     this.active = false;
+  }
+}
+
+/** Flashcards from lectures. */
+export class CardGenerationJobs extends LectureJobs {
+  protected readonly busyMessage = "A card generation job is already running.";
+
+  protected async process(note: Note, o: StartOptions, signal: AbortSignal): Promise<Outcome> {
+    const r = await generateCardsForNote({
+      runner: this.runner, note, courses: o.courses, density: o.density, focus: o.focus,
+      existingFronts: existingFronts(o.db, note.course), signal,
+    });
+    recordUsage(o.db, "cards", r.calls, r.costUsd);
+
+    // Another lecture in this job may have just saved a similar question: check again right before saving.
+    const fresh = existingFronts(o.db, note.course);
+    const keep = r.accepted.filter((c) => !fresh.some((f) => normalize(f) === normalize(c.front) || jaccard(f, c.front) >= 0.8));
+    const late = r.accepted.length - keep.length;
+    const created = await addGeneratedCards(o.db, note, noteVersion(note), keep);
+    logGeneration(o.db, note.id, noteVersion(note), created, r.calls);
+    return {
+      created,
+      duplicates: r.rejected.filter((x) => x.reason === "duplicate").length + late,
+      dropped: r.rejected.filter((x) => x.reason !== "duplicate").map((x) => ({ front: x.front, why: REJECT_LABEL[x.reason] + (x.detail ? ` (${x.detail})` : "") })),
+      calls: r.calls,
+      costUsd: r.costUsd,
+    };
+  }
+}
+
+/** Quiz questions from lectures: written, then double-checked by a blind second solve, then saved. */
+export class QuestionGenerationJobs extends LectureJobs {
+  protected readonly busyMessage = "A quiz-question generation job is already running.";
+
+  protected async process(note: Note, o: StartOptions, signal: AbortSignal): Promise<Outcome> {
+    let r;
+    try {
+      r = await generateQuestionsForNote({ runner: this.runner, note, courses: o.courses, density: o.density, focus: o.focus, existingStems: existingStems(o.db, note.course), signal });
+    } catch (e) {
+      // Claude was asked even though nothing could be kept, so those calls still count against the allowance.
+      if (e instanceof DoubleCheckError) recordUsage(o.db, "quiz", e.calls, e.costUsd);
+      throw e;
+    }
+    recordUsage(o.db, "quiz", r.calls, r.costUsd);
+
+    const fresh = existingStems(o.db, note.course);
+    const keep = r.accepted.filter((c) => !fresh.some((f) => normalize(f) === normalize(c.stem) || jaccard(f, c.stem) >= 0.8));
+    const late = r.accepted.length - keep.length;
+    const created = addGeneratedQuestions(o.db, note, noteVersion(note), keep);
+    logQuestionGeneration(o.db, note.id, noteVersion(note), created, r.calls);
+    return {
+      created,
+      duplicates: r.rejected.filter((x) => x.reason === "duplicate").length + late,
+      dropped: r.rejected.filter((x) => x.reason !== "duplicate").map((x) => ({ front: x.stem, why: Q_REJECT_LABEL[x.reason] + (x.detail ? ` (${x.detail})` : "") })),
+      calls: r.calls,
+      costUsd: r.costUsd,
+    };
   }
 }

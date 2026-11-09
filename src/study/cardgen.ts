@@ -109,8 +109,11 @@ export function buildCardPrompts(note: Note, opts: PromptOptions): { system: str
 
 // ---------- parsing ----------
 
-/** Pull the card array out of a model reply, tolerating code fences, chatter, or a {"cards": [...]} wrapper. */
-export function parseCardsJson(text: string): unknown[] {
+/**
+ * Pull a JSON list out of a model reply, tolerating code fences, chatter, or a {"<key>": [...]} wrapper.
+ * `what` names the thing in the error message ("cards", "questions").
+ */
+export function parseJsonList(text: string, key: string, what: string): unknown[] {
   const cleaned = text.replace(/```(?:json)?/gi, "");
   const tryParse = (s: string): unknown => {
     try {
@@ -126,9 +129,11 @@ export function parseCardsJson(text: string): unknown[] {
     if (Array.isArray(v)) return v;
   }
   const o = tryParse(cleaned.slice(cleaned.indexOf("{"), cleaned.lastIndexOf("}") + 1));
-  if (o && typeof o === "object" && Array.isArray((o as { cards?: unknown }).cards)) return (o as { cards: unknown[] }).cards;
-  throw new Error("Claude's reply wasn't a JSON list of cards");
+  if (o && typeof o === "object" && Array.isArray((o as Record<string, unknown>)[key])) return (o as Record<string, unknown[]>)[key];
+  throw new Error(`Claude's reply wasn't a JSON list of ${what}`);
 }
+
+export const parseCardsJson = (text: string): unknown[] => parseJsonList(text, "cards", "cards");
 
 // ---------- verification ----------
 
