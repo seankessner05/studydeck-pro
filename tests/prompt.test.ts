@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { buildSystemPrompt, buildUserPrompt } from "../src/prompt";
-import { buildArgs, friendlyError, parseAuthStatus, parseStreamLine } from "../src/claude";
+import { buildArgs, cleanEnv, friendlyError, parseAuthStatus, parseStreamLine } from "../src/claude";
 import { routeTitle } from "../src/courses";
 
 describe("prompt", () => {
@@ -58,5 +58,18 @@ describe("login detection", () => {
   });
   it("tells the student how to fix an expired session", () => {
     expect(friendlyError(new Error("Failed to authenticate: OAuth session expired and could not be refreshed"))).toContain("claude auth login");
+  });
+});
+
+describe("billing safety", () => {
+  it("never passes an API key or cloud-provider switch to the claude CLI", () => {
+    const env = cleanEnv({
+      PATH: "/bin", HOME: "/h", ANTHROPIC_API_KEY: "sk-x", ANTHROPIC_AUTH_TOKEN: "t",
+      CLAUDE_CODE_USE_BEDROCK: "1", CLAUDE_CODE_USE_VERTEX: "1", CLAUDE_CODE_USE_FOUNDRY: "1",
+    });
+    expect(env).toEqual({ PATH: "/bin", HOME: "/h" });
+  });
+  it("reads the subscription type from auth status", () => {
+    expect(parseAuthStatus('{"loggedIn": true, "authMethod": "claude.ai", "subscriptionType": "pro"}')).toMatchObject({ loggedIn: true, method: "claude.ai", subscription: "pro" });
   });
 });

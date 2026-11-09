@@ -71,9 +71,25 @@ export function parseStreamLine(line: string): { delta?: string; result?: { text
   return {};
 }
 
+/** Variables that would make Claude Code bill per token (an API key) or route through a cloud account. */
+export const BILLING_ENV_VARS = [
+  "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN",
+  "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_FOUNDRY",
+];
+
+/**
+ * The environment StudyDeck gives the `claude` CLI: yours, minus anything that would switch it from your
+ * subscription login to a pay-per-token API key. So StudyDeck can only ever use your Claude plan.
+ */
+export function cleanEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const out = { ...env };
+  for (const k of BILLING_ENV_VARS) delete out[k];
+  return out;
+}
+
 export const runClaude: Runner = (opts) =>
   new Promise((resolve, reject) => {
-    const child = spawn("claude", buildArgs(opts), { stdio: ["pipe", "pipe", "pipe"] });
+    const child = spawn("claude", buildArgs(opts), { stdio: ["pipe", "pipe", "pipe"], env: cleanEnv() });
     let buf = "";
     let streamed = "";
     let final: RunResult | undefined;
@@ -133,6 +149,8 @@ export function friendlyError(e: unknown): string {
 export interface AuthStatus {
   loggedIn: boolean;
   method?: string;
+  /** e.g. "pro" or "max" for a Claude subscription. */
+  subscription?: string;
 }
 
 export const LOGIN_FIX = "Run `claude auth login` in a terminal (or `claude`, then /login), then try again.";
@@ -140,7 +158,11 @@ export const LOGIN_FIX = "Run `claude auth login` in a terminal (or `claude`, th
 export function parseAuthStatus(stdout: string): AuthStatus {
   try {
     const d = JSON.parse(stdout);
-    return { loggedIn: d.loggedIn === true, method: typeof d.authMethod === "string" && d.authMethod !== "none" ? d.authMethod : undefined };
+    return {
+      loggedIn: d.loggedIn === true,
+      method: typeof d.authMethod === "string" && d.authMethod !== "none" ? d.authMethod : undefined,
+      subscription: typeof d.subscriptionType === "string" ? d.subscriptionType : undefined,
+    };
   } catch {
     return { loggedIn: false };
   }

@@ -69,6 +69,22 @@ describe("doctor", () => {
     expect(byId(out, "granola").fix).not.toContain("mcp add");
   });
 
+  it("shows the billing situation: subscription login, API keys ignored", async () => {
+    const sub = { ...healthy, "claude auth status": res('{"loggedIn": true, "authMethod": "claude.ai", "subscriptionType": "pro"}') };
+    const ok1 = byId(await runDoctor(base({ exec: machine(sub), env: {} })), "billing");
+    expect(ok1.status).toBe("ok");
+    expect(ok1.detail).toContain("Claude pro subscription login, never an API key");
+    expect(ok1.detail).toContain("Syncing Granola uses no Claude");
+    const withKey = byId(await runDoctor(base({ exec: machine(sub), env: { ANTHROPIC_API_KEY: "sk-test" } })), "billing");
+    expect(withKey.status).toBe("ok");
+    expect(withKey.detail).toContain("ANTHROPIC_API_KEY is set in your environment, and StudyDeck ignores it");
+    expect(withKey.detail).not.toContain("sk-test");
+    const apiLogin = { ...healthy, "claude auth status": res('{"loggedIn": true, "authMethod": "api_key"}') };
+    const warn = byId(await runDoctor(base({ exec: machine(apiLogin), env: {} })), "billing");
+    expect(warn.status).toBe("warn");
+    expect(warn.fix).toContain("claude auth login");
+  });
+
   it("flags a Node that is too old, and a broken SQLite", async () => {
     expect(nodeIsNewEnough("22.13.0")).toBe(true);
     expect(nodeIsNewEnough("v24.14.1")).toBe(true);

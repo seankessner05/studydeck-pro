@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { DatabaseSync } from "node:sqlite";
-import { LOGIN_FIX, parseAuthStatus, type Runner } from "./claude.js";
+import { BILLING_ENV_VARS, LOGIN_FIX, parseAuthStatus, type AuthStatus, type Runner } from "./claude.js";
 import { idsOf, type Course } from "./courses.js";
 import { loadNotes } from "./notes.js";
 
@@ -32,6 +32,8 @@ export interface DoctorDeps {
   courses: Course[];
   /** Used only for the deep check: one real, tiny question to Claude. */
   runner?: Runner;
+  /** Environment to inspect for API keys. Defaults to process.env. */
+  env?: NodeJS.ProcessEnv;
   /** Throws if full-text search is unavailable. Injectable for tests. */
   sqliteProbe?: () => void;
 }
@@ -83,7 +85,7 @@ export async function runDoctor(deps: DoctorDeps, opts: { deep?: boolean } = {})
   };
 
   // Connectors come with your Claude account, so several checks depend on the login. Ask once.
-  let authP: Promise<{ loggedIn: boolean; method?: string }> | undefined;
+  let authP: Promise<AuthStatus> | undefined;
   const getAuth = () =>
     (authP ??= (async () => {
       const a = await tryRun("claude", ["auth", "status"], 15_000);
@@ -118,6 +120,15 @@ export async function runDoctor(deps: DoctorDeps, opts: { deep?: boolean } = {})
         ? ok("login", "Claude login", auth.method ? `signed in (${auth.method})` : "signed in")
         : bad("login", "Claude login", "fail", "Not signed in, or the session expired. Questions and sync will fail.", LOGIN_FIX),
     );
+    if (auth.loggedIn) {
+      const keys = BILLING_ENV_VARS.filter((k) => (deps.env ?? process.env)[k]);
+      const plan = auth.subscription ? `${auth.subscription} ` : "";
+      if (auth.method !== "claude.ai") {
+        checks.push(bad("billing", "Billing", "warn", `Signed in with “${auth.method ?? "unknown"}”, not a Claude subscription, so use may be billed per token.`, "Run `claude auth login` and choose your Claude account (the subscription login)."));
+      } else {
+        checks.push(ok("billing", "Billing", `Uses your Claude ${plan}subscription login, never an API key${keys.length ? ` (${keys.join(", ")} is set in your environment, and StudyDeck ignores it)` : ""}. Questions count toward your plan's usage allowance, not per-token charges. Syncing Granola uses no Claude at all. If you've turned on "extra usage" in your Claude settings, heavy use past your allowance could be billed.`));
+      }
+    }
     if (opts.deep) {
       if (!auth.loggedIn || !deps.runner) {
         checks.push(bad("ping", "Claude answers a question", "warn", "Skipped because Claude isn't signed in.", LOGIN_FIX));
