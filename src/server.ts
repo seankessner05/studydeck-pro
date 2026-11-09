@@ -13,9 +13,11 @@ import { answerQuestion } from "./answer.js";
 import { appendMessage, clearChat, loadChats, studyStreak, type ChatMessage } from "./chats.js";
 import { loadSettings, saveSettings, type Settings } from "./settings.js";
 import { studyDb } from "./study/db.js";
-import { CardError, NEW_PER_DAY, accuracy, addCard, buildSession, counts, deleteCard, forecast, listCards, reviewCard, studyDays } from "./study/cards.js";
+import { CardError, NEW_PER_DAY, accuracy, addCard, buildSession, counts, coverage, deleteCard, forecast, listCards, reviewCard, studyDays } from "./study/cards.js";
+import { DENSITIES, DENSITY_TARGET, noteVersion, type Density } from "./study/cardgen.js";
+import { CardGenerationJobs } from "./study/jobs.js";
 import { recordUsage, usageSummary } from "./study/usage.js";
-import { runDoctor } from "./doctor.js";
+import { runDoctor, type DoctorDeps } from "./doctor.js";
 import { DATA_DIR } from "./paths.js";
 import { GranolaConnection, GranolaError, NotConnectedError, type GranolaService } from "./granola/api.js";
 import { runDirectSync } from "./granola/sync.js";
@@ -27,6 +29,8 @@ export interface AppDeps {
   dataDir: string;
   /** Direct connection to Granola; tests pass a fake. */
   granola?: GranolaService;
+  /** How the Doctor runs shell commands; tests pass a fake so they don't depend on the real `claude` CLI. */
+  doctorExec?: DoctorDeps["exec"];
 }
 
 const HISTORY_TURNS = 6;
@@ -43,6 +47,7 @@ export function createApp(deps: AppDeps) {
   const granola = deps.granola ?? new GranolaConnection(path.join(deps.dataDir, "granola-auth.json"));
   const redirectFor = (req: express.Request) => `${req.protocol}://${req.get("host")}/api/granola/callback`;
   let syncing = false;
+  const generation = new CardGenerationJobs(deps.runner);
   const lastSyncFile = path.join(deps.dataDir, "last-sync.json");
   const readLastSync = () => {
     try {
@@ -115,7 +120,10 @@ export function createApp(deps: AppDeps) {
   app.post("/api/settings", (req, res) => {
     const patch: Partial<Settings> = {};
     if (typeof req.body?.demo === "boolean") patch.demo = req.body.demo;
-    if (typeof req.body?.aiPaused === "boolean") patch.aiPaused = req.body.aiPaused;
+    if (typeof req.body?.aiPaused === "boolean") {
+      patch.aiPaused = req.body.aiPaused;
+      if (patch.aiPaused) generation.cancel();
+    }
     res.json({ ok: true, ...saveSettings(deps.dataDir, patch) });
   });
 
@@ -220,7 +228,7 @@ export function createApp(deps: AppDeps) {
       : deps.runner;
     res.json(
       await runDoctor(
-        { dataDir: deps.dataDir, notesDir: deps.notesDir, courses: loadRegistry(deps.dataDir), runner, usage: () => ({ ...usageSummary(sdb()), paused: paused() }) },
+        { dataDir: deps.dataDir, notesDir: deps.notesDir, courses: loadRegistry(deps.dataDir), runner, exec: deps.doctorExec, usage: () => ({ ...usageSummary(sdb()), paused: paused() }) },
         { deep: req.query.deep === "1" },
       ),
     );
@@ -273,6 +281,63 @@ export function createApp(deps: AppDeps) {
 
   app.delete("/api/study/cards/:id", studyRoute((req, res) => {
     res.json({ ok: deleteCard(sdb(), String(req.params.id)) });
+  }));
+
+  // ---- study: generate cards from lectures ----
+  const MAX_LECTURES_PER_JOB = 40;
+  const DENSITY_LABEL: Record<Density, string> = { light: "Light", normal: "Normal", thorough: "Thorough" };
+
+  /** Lectures in scope with their card status: none yet, generated, or generated from an older version of the note. */
+  const lectureStatus = (course: string) => {
+    const cur = current();
+    const cov = coverage(sdb());
+    return loadNotes(course, cur.dir, activeIdsOf(cur.courses))
+      .map((n) => {
+        const c = cov.get(n.id);
+        const status = !c ? "none" : c.versions.includes(noteVersion(n)) ? "generated" : "stale";
+        return { note: n, status, cards: c?.cards ?? 0 };
+      })
+      .sort((a, b) => b.note.date.localeCompare(a.note.date) || a.note.title.localeCompare(b.note.title));
+  };
+
+  app.get("/api/study/generate/plan", studyRoute((req, res) => {
+    const course = scopeOf(req.query.course);
+    if (!course) return res.status(404).json({ error: "Unknown class" });
+    res.json({
+      lectures: lectureStatus(course).map(({ note, status, cards }) => ({
+        id: note.id, course: note.course, title: note.title, date: note.date, words: note.body.split(/\s+/).length, status, cards,
+      })),
+      densities: DENSITIES.map((id) => ({ id, label: DENSITY_LABEL[id], target: DENSITY_TARGET[id] })),
+      paused: paused(),
+      running: generation.isRunning(),
+      maxPerJob: MAX_LECTURES_PER_JOB,
+    });
+  }));
+
+  app.post("/api/study/generate", studyRoute((req, res) => {
+    if (paused()) return res.status(409).json({ error: "AI is paused, so card generation is off. Resume it in the sidebar." });
+    if (generation.isRunning()) return res.status(409).json({ error: "A card generation job is already running." });
+    const b = req.body ?? {};
+    const course = scopeOf(b.course);
+    if (!course) return res.status(404).json({ error: "Unknown class" });
+    const density = (DENSITIES as string[]).includes(b.density) ? (b.density as Density) : "normal";
+    const all = lectureStatus(course);
+    const wanted: unknown = b.noteIds;
+    const picked = Array.isArray(wanted)
+      ? all.filter((l) => (wanted as unknown[]).includes(l.note.id))
+      : all.filter((l) => l.status !== "generated");
+    if (!picked.length) return res.status(400).json({ error: "Nothing to generate: every lecture here already has cards. Pick a lecture to make more." });
+    if (picked.length > MAX_LECTURES_PER_JOB) return res.status(400).json({ error: `Pick ${MAX_LECTURES_PER_JOB} lectures or fewer at a time, so one job can't spend too much of your allowance.` });
+    const cur = current();
+    res.json(generation.start({ db: sdb(), notes: picked.map((l) => l.note), courses: cur.courses, course, density, focus: typeof b.focus === "string" ? b.focus : undefined }));
+  }));
+
+  app.get("/api/study/generate/status", studyRoute((_req, res) => {
+    res.json({ job: generation.status() ?? null, running: generation.isRunning() });
+  }));
+
+  app.post("/api/study/generate/cancel", studyRoute((_req, res) => {
+    res.json({ cancelled: generation.cancel() });
   }));
 
   app.get("/api/usage", studyRoute((_req, res) => {

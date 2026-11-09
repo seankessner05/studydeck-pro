@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { Db } from "../library/db.js";
 import { tx } from "./db.js";
 import { deserialize, newCard, preview, review, serialize, type Grade, type Preview } from "./fsrs.js";
+import type { GeneratedCard } from "./cardgen.js";
 
 export const NEW_PER_DAY = 20;
 const MAX_FRONT = 600;
@@ -195,4 +196,51 @@ export function studyDays(db: Db): string[] {
     .prepare("SELECT DISTINCT date(reviewed_at / 1000, 'unixepoch', 'localtime') d FROM reviews ORDER BY d")
     .all()
     .map((r: any) => String(r.d));
+}
+
+/** Fronts of every card in a class, so a new batch can skip questions you already have. */
+export function existingFronts(db: Db, course: string): string[] {
+  return (db.prepare("SELECT front FROM cards WHERE course = ?").all(course) as { front: string }[]).map((r) => r.front);
+}
+
+/** Save verified, generated cards for one lecture. Existing cards (and their review history) are never touched. */
+export async function addGeneratedCards(db: Db, note: { id: string; course: string }, version: string, cards: GeneratedCard[], now = new Date()): Promise<number> {
+  const prepared: { c: GeneratedCard; fsrs: Awaited<ReturnType<typeof newCard>> }[] = [];
+  for (const c of cards) prepared.push({ c, fsrs: await newCard(now) });
+  tx(db, () => {
+    const insert = db.prepare(
+      `INSERT INTO cards (id, course, note_id, section, front, back, quote, origin, note_version, fsrs, due, state, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'generated', ?, ?, ?, 0, ?)`,
+    );
+    // Increasing timestamps keep a lecture's cards in the order they were written.
+    prepared.forEach(({ c, fsrs }, i) => insert.run(randomUUID(), note.course, note.id, c.section, c.front, c.back, c.quote, version, serialize(fsrs), fsrs.dueAt.getTime(), now.getTime() + i));
+  });
+  return prepared.length;
+}
+
+export interface NoteCoverage {
+  cards: number;
+  /** Every version of the note that has been processed into cards */
+  versions: string[];
+}
+
+/** Record that this version of a lecture has been processed (even if every new card was a duplicate or was dropped). */
+export function logGeneration(db: Db, noteId: string, version: string, created: number, calls: number, now = new Date()) {
+  db.prepare("INSERT OR REPLACE INTO gen_log (note_id, note_version, at, created, calls) VALUES (?, ?, ?, ?, ?)").run(noteId, version, now.getTime(), created, calls);
+}
+
+/** For each lecture that has been processed: how many generated cards it has, and which versions of the note were used. */
+export function coverage(db: Db): Map<string, NoteCoverage> {
+  const out = new Map<string, NoteCoverage>();
+  const get = (id: string) => out.get(id) ?? out.set(id, { cards: 0, versions: [] }).get(id)!;
+  const add = (c: NoteCoverage, v: string | null) => {
+    if (v && !c.versions.includes(v)) c.versions.push(v);
+  };
+  for (const r of db.prepare("SELECT note_id, note_version, COUNT(*) n FROM cards WHERE origin = 'generated' AND note_id IS NOT NULL GROUP BY note_id, note_version").all() as { note_id: string; note_version: string | null; n: number }[]) {
+    const c = get(r.note_id);
+    c.cards += Number(r.n);
+    add(c, r.note_version);
+  }
+  for (const r of db.prepare("SELECT note_id, note_version FROM gen_log").all() as { note_id: string; note_version: string }[]) add(get(r.note_id), r.note_version);
+  return out;
 }

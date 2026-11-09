@@ -18,7 +18,10 @@ beforeAll(async () => {
   fs.mkdirSync(path.join(notesDir, "ECON301"));
   fs.writeFileSync(path.join(notesDir, "ECON301", "2026-10-13_a.md"), "---\ntitle: A\ncourse: ECON301\ndate: 2026-10-13\n---\nbody");
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "sd-sdata-"));
-  const app = createApp({ runner, notesDir, sampleDir: path.resolve("sample-notes"), dataDir });
+  const ok = (stdout: string) => ({ code: 0, stdout, stderr: "" });
+  const doctorExec = async (cmd: string, args: string[]) =>
+    args[0] === "auth" ? ok('{"loggedIn": true, "authMethod": "claude.ai", "subscriptionType": "pro"}') : ok(cmd === "claude" && args[0] === "mcp" ? "claude.ai Granola: x - ✔ Connected\n" : "1.0.0\n");
+  const app = createApp({ runner, notesDir, sampleDir: path.resolve("sample-notes"), dataDir, doctorExec });
   await new Promise<void>((r) => (server = app.listen(0, () => r())));
   base = `http://127.0.0.1:${(server.address() as any).port}`;
 });

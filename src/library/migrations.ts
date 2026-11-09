@@ -65,4 +65,19 @@ export const MIGRATIONS: Migration[] = [
       CREATE INDEX idx_usage_time ON ai_usage (at);
     `,
   },
+  {
+    version: 3,
+    name: "study: card generation log",
+    sql: `
+      -- Which version of each lecture has been turned into cards, even when no new cards resulted.
+      CREATE TABLE gen_log (
+        note_id      TEXT NOT NULL,
+        note_version TEXT NOT NULL,
+        at           INTEGER NOT NULL,
+        created      INTEGER NOT NULL,
+        calls        INTEGER NOT NULL,
+        PRIMARY KEY (note_id, note_version)
+      );
+    `,
+  },
 ];
