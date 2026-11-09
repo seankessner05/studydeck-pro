@@ -86,6 +86,15 @@ html { -webkit-font-smoothing: antialiased; }
 .pop { animation: pop 0.35s cubic-bezier(0.2, 1.4, 0.4, 1); }
 @keyframes pop { from { transform: scale(0.85); opacity: 0; } }
 
+/* Session-complete confetti */
+.confetti { pointer-events: none; position: absolute; inset: 0; overflow: hidden; }
+.confetti span { position: absolute; bottom: 30%; left: 50%; font-size: 1.5rem; opacity: 0; animation: confetti 1.4s ease-out forwards; }
+@keyframes confetti { 0% { opacity: 1; transform: translate(0, 0) scale(0.6); } 100% { opacity: 0; transform: translate(var(--x), -220px) rotate(var(--r)) scale(1.1); } }
+
+/* Flashcard reveal */
+.flip { animation: flip 0.32s ease-out; }
+@keyframes flip { from { opacity: 0; transform: rotateX(-18deg) translateY(6px); } }
+
 @media (prefers-reduced-motion: reduce) {
-  .fade-in, .slide-in, .pop, .hl { animation: none; }
+  .fade-in, .slide-in, .pop, .hl, .flip, .confetti span { animation: none; }
 }

@@ -3,6 +3,8 @@ const $ = (id) => document.getElementById(id);
 const state = {
   course: "all", view: "chat", courses: [], profiles: [], editable: false, total: 0, source: "samples", demo: false, streak: 0, busy: false,
   notes: [], granola: { connected: false, syncing: false, last: null, msg: "", authUrl: "", detail: "" },
+  aiPaused: false, usage: null,
+  study: { mode: "home", today: null, cards: [], badge: 0, queue: [], idx: 0, revealed: false, reviewed: 0, correct: 0, t0: 0, cardT0: 0, busy: false },
 };
 
 // Course colors come from the registry (a palette name per course). Literal class names so Tailwind keeps them.
@@ -237,17 +239,17 @@ function renderHeader() {
   $("sourceBadge").innerHTML = `<span class="sm:hidden">${state.demo ? "Demo" : "Samples"}</span><span class="hidden sm:inline">${state.demo ? "Demo mode · sample notes" : "Sample notes"}</span>`;
   document.querySelectorAll(".tab").forEach((t) => {
     const on = t.dataset.view === state.view;
-    t.className = `tab -mb-px border-b-[3px] px-4 py-2.5 text-sm font-bold transition ${on ? "border-brand-500 text-brand-600 dark:text-brand-300" : "border-transparent text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"}`;
+    t.className = `tab -mb-px whitespace-nowrap border-b-[3px] px-2.5 py-2.5 text-sm font-bold transition sm:px-4 ${on ? "border-brand-500 text-brand-600 dark:text-brand-300" : "border-transparent text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"}`;
     t.setAttribute("aria-selected", on);
   });
-  $("clearBtn").classList.toggle("invisible", state.view !== "chat");
+  $("clearBtn").classList.toggle("hidden", state.view !== "chat");
 }
 
 async function refreshState() {
   const r = await fetch("/api/state").then((r) => r.json());
-  Object.assign(state, { courses: r.courses, profiles: r.profiles, editable: r.editable, total: r.total, source: r.source, demo: r.demo, streak: r.streak });
+  Object.assign(state, { courses: r.courses, profiles: r.profiles, editable: r.editable, total: r.total, source: r.source, demo: r.demo, streak: r.streak, aiPaused: r.aiPaused });
   $("demo").checked = $("demoMobile").checked = state.demo;
-  renderSidebar(); renderHeader(); renderStreak();
+  renderSidebar(); renderHeader(); renderStreak(); renderAi();
 }
 
 async function loadNotes() {
@@ -259,12 +261,14 @@ async function loadNotes() {
 function setView(v) {
   state.view = v;
   try { localStorage.setItem("view", v); } catch {}
-  $("chatView").classList.toggle("hidden", v !== "chat");
-  $("chatView").classList.toggle("flex", v === "chat");
-  $("notesView").classList.toggle("hidden", v !== "notes");
-  $("notesView").classList.toggle("flex", v === "notes");
+  for (const [name, el] of [["chat", $("chatView")], ["notes", $("notesView")], ["study", $("studyView")]]) {
+    el.classList.toggle("hidden", v !== name);
+    el.classList.toggle("flex", v === name);
+  }
   renderHeader();
-  if (v === "notes") { renderNotes(); $("notesSearch").focus(); } else $("q").focus();
+  if (v === "notes") { renderNotes(); $("notesSearch").focus(); }
+  else if (v === "study") { state.study.mode === "play" ? renderStudy() : (state.study.mode = "home", renderStudy(), loadStudyToday()); }
+  else $("q").focus();
 }
 
 function noteCard(n) {
@@ -293,7 +297,8 @@ function renderNotes() {
 async function selectCourse(id, { keepView = true } = {}) {
   state.course = id;
   $("notesSearch").value = "";
-  await Promise.all([refreshState(), loadNotes()]);
+  state.study.mode = "home";
+  await Promise.all([refreshState(), loadNotes(), loadStudyToday()]);
   const history = await fetch(`/api/chats/${encodeURIComponent(id)}`).then((r) => r.json());
   $("messages").innerHTML = "";
   if (!history.length) emptyState();
@@ -358,6 +363,7 @@ async function ask(question) {
   updateAssistant(el, msg, false);
   setBusy(false);
   refreshState();
+  refreshAi();
   $("q").focus();
 }
 
@@ -532,6 +538,235 @@ async function runGranolaSync() {
   await Promise.all([refreshGranola(), refreshState(), loadNotes()]);
 }
 
+// ---- study ----
+const S = state.study;
+const GRADE_LABEL = { 1: "Again", 2: "Hard", 3: "Good", 4: "Easy" };
+const GRADE_STYLE = {
+  1: "bg-red-500 hover:bg-red-600",
+  2: "bg-orange-500 hover:bg-orange-600",
+  3: "bg-emerald-500 hover:bg-emerald-600",
+  4: "bg-brand-500 hover:bg-brand-600",
+};
+const STATE_LABEL = { 0: "New", 1: "Learning", 2: "Review", 3: "Relearning" };
+const REQUEUE_WITHIN_MS = 20 * 60 * 1000;
+
+async function loadStudyToday() {
+  const course = encodeURIComponent(state.course);
+  const [t, c] = await Promise.all([fetch(`/api/study/today?course=${course}`), fetch(`/api/study/cards?course=${course}`)]);
+  if (!t.ok) return;
+  S.today = await t.json();
+  S.cards = c.ok ? await c.json() : [];
+  const k = S.today.counts;
+  S.badge = k.due + k.learning + k.newAvailable;
+  $("studyBadge").textContent = S.badge;
+  $("studyBadge").classList.toggle("hidden", !S.badge);
+  if (state.view === "study" && S.mode === "home") renderStudyHome();
+}
+
+function renderStudy() {
+  if (S.mode === "play") renderPlayer();
+  else if (S.mode === "done") renderDone();
+  else renderStudyHome();
+}
+
+function statTile(label, value, tone) {
+  return `<div class="rounded-2xl bg-white p-4 shadow-card ring-1 ring-slate-200/70 dark:bg-ink-800 dark:ring-ink-600">
+    <div class="text-3xl font-extrabold tabular-nums ${tone}">${value}</div><div class="mt-0.5 text-xs font-bold text-slate-400">${label}</div></div>`;
+}
+
+function renderStudyHome() {
+  const t = S.today;
+  if (!t) { $("studyBody").innerHTML = '<div class="py-20 text-center text-slate-400"><span class="dots"><span></span><span></span><span></span></span></div>'; return; }
+  const k = t.counts;
+  const todo = k.due + k.learning + k.newAvailable;
+  const name = courseName(state.course);
+  const max = Math.max(1, ...t.forecast);
+  const today = new Date();
+  const bars = t.forecast.map((n, i) => {
+    const d = new Date(today.getTime() + i * 86400000);
+    const lab = i === 0 ? "Today" : d.toLocaleDateString(undefined, { weekday: "short" });
+    return `<div class="flex flex-1 flex-col items-center gap-1.5"><span class="text-[11px] font-extrabold tabular-nums ${n ? "text-brand-600 dark:text-brand-300" : "text-slate-300 dark:text-ink-600"}">${n}</span>
+      <div class="flex h-16 w-full items-end"><div class="w-full rounded-t-lg ${n ? "bg-brand-500" : "bg-slate-100 dark:bg-ink-700"}" style="height:${n ? Math.max(8, Math.round((100 * n) / max)) : 6}%"></div></div>
+      <span class="text-[10px] font-bold text-slate-400">${lab}</span></div>`;
+  }).join("");
+  const acc = t.accuracy;
+  const cardsHtml = (S.cards || []).slice(0, 30).map((c) => `<div class="flex items-center gap-3 rounded-xl px-3 py-2 hover:bg-slate-50 dark:hover:bg-ink-700">
+      <span class="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-extrabold text-slate-500 dark:bg-ink-700 dark:text-slate-300">${STATE_LABEL[c.state]}</span>
+      <div class="min-w-0 flex-1"><div class="truncate text-sm font-bold">${esc(c.front)}</div><div class="truncate text-xs text-slate-400">${esc(c.back)}</div></div>
+      <button data-del-card="${esc(c.id)}" class="rounded-lg px-2 text-lg leading-none text-slate-300 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/10" aria-label="Delete card">×</button></div>`).join("");
+  const picker = state.course === "all"
+    ? `<select id="cardCourse" class="rounded-xl border border-slate-200 bg-transparent px-3 py-2 text-sm font-semibold dark:border-ink-600 dark:bg-ink-800">${state.courses.filter((c) => !c.archived && c.id !== "unsorted").map((c) => `<option value="${esc(c.id)}">${esc(c.id)} · ${esc(c.name)}</option>`).join("")}</select>`
+    : "";
+
+  $("studyBody").innerHTML = `<div class="space-y-5 fade-in">
+    <div class="relative overflow-hidden rounded-3xl bg-gradient-to-br from-brand-500 via-brand-600 to-fuchsia-500 p-6 text-white shadow-pop md:p-8">
+      <div class="absolute -top-8 -right-8 text-[9rem] leading-none opacity-10">🧠</div>
+      <div class="flex items-start justify-between gap-3"><div class="text-sm font-extrabold opacity-80">Study today · ${esc(name)}</div>
+        <div class="rounded-full bg-white/20 px-3 py-1 text-xs font-extrabold">🔥 ${t.streak}-day streak</div></div>
+      <div class="mt-2 flex items-baseline gap-2"><span class="text-6xl font-extrabold tabular-nums">${todo}</span><span class="text-lg font-bold opacity-80">${todo === 1 ? "card" : "cards"} to study</span></div>
+      <div class="mt-1 text-sm font-semibold opacity-80">${k.due} due · ${k.learning} relearning · ${k.newAvailable} new (limit ${t.newPerDay} a day)</div>
+      <button id="startStudy" ${todo ? "" : "disabled"} class="mt-5 rounded-2xl bg-white px-6 py-3 text-sm font-extrabold text-brand-700 shadow-card transition hover:-translate-y-0.5 active:scale-95 disabled:opacity-50 disabled:hover:translate-y-0">${todo ? "Start session →" : k.total ? "All caught up 🎉" : "No cards yet"}</button>
+    </div>
+
+    <div class="grid grid-cols-3 gap-3">${statTile("Due now", k.due + k.learning, "text-brand-600 dark:text-brand-300")}${statTile("New today", k.newAvailable, "text-emerald-600 dark:text-emerald-300")}${statTile("All cards", k.total, "text-slate-700 dark:text-slate-200")}</div>
+
+    <div class="grid gap-4 sm:grid-cols-5">
+      <div class="rounded-2xl bg-white p-4 shadow-card ring-1 ring-slate-200/70 sm:col-span-3 dark:bg-ink-800 dark:ring-ink-600"><div class="mb-3 text-xs font-extrabold uppercase tracking-wider text-slate-400">Next 7 days</div><div class="flex gap-2">${bars}</div></div>
+      <div class="rounded-2xl bg-white p-4 shadow-card ring-1 ring-slate-200/70 sm:col-span-2 dark:bg-ink-800 dark:ring-ink-600"><div class="mb-3 text-xs font-extrabold uppercase tracking-wider text-slate-400">Last 7 days</div>
+        ${acc.reviews ? `<div class="text-4xl font-extrabold tabular-nums">${acc.pct}%</div><div class="mt-1 text-xs font-semibold text-slate-400">remembered, across ${plural(acc.reviews, "review")}</div>
+        <div class="mt-3 h-2 overflow-hidden rounded-full bg-slate-100 dark:bg-ink-700"><div class="h-full rounded-full bg-emerald-500" style="width:${acc.pct}%"></div></div>` : '<div class="text-sm font-semibold text-slate-400">No reviews yet. Your first session starts the chart. ✨</div>'}</div>
+    </div>
+
+    <div class="rounded-2xl bg-white p-5 shadow-card ring-1 ring-slate-200/70 dark:bg-ink-800 dark:ring-ink-600">
+      <div class="text-xs font-extrabold uppercase tracking-wider text-slate-400">Add a card by hand</div>
+      <form id="cardForm" class="mt-3 space-y-2">
+        ${picker}
+        <input id="cardFront" required maxlength="600" placeholder="Front: a question or term" class="w-full rounded-xl border border-slate-200 bg-transparent px-3 py-2 text-sm dark:border-ink-600" />
+        <textarea id="cardBack" required maxlength="2000" rows="2" placeholder="Back: the answer" class="w-full rounded-xl border border-slate-200 bg-transparent px-3 py-2 text-sm dark:border-ink-600"></textarea>
+        <input id="cardQuote" maxlength="400" placeholder="Optional: a line from your notes as the receipt" class="w-full rounded-xl border border-slate-200 bg-transparent px-3 py-2 text-sm dark:border-ink-600" />
+        <div class="flex items-center justify-between"><span id="cardError" class="text-xs text-red-600 dark:text-red-400"></span><button class="rounded-xl bg-brand-500 px-5 py-2 text-sm font-extrabold text-white hover:bg-brand-600">Add card</button></div>
+      </form>
+      <div class="mt-4 rounded-xl bg-sun/20 px-4 py-3 text-xs font-semibold text-amber-900 dark:text-sun">✨ Coming next: one click turns any lecture into cards, each with a receipt from your notes.</div>
+    </div>
+
+    ${cardsHtml ? `<div class="rounded-2xl bg-white p-3 shadow-card ring-1 ring-slate-200/70 dark:bg-ink-800 dark:ring-ink-600"><div class="px-3 pt-2 pb-1 text-xs font-extrabold uppercase tracking-wider text-slate-400">Your cards (${k.total})</div>${cardsHtml}</div>` : ""}
+  </div>`;
+}
+
+async function startStudySession() {
+  const res = await fetch(`/api/study/session?course=${encodeURIComponent(state.course)}&limit=50`);
+  if (!res.ok) return;
+  const queue = await res.json();
+  if (!queue.length) return loadStudyToday();
+  Object.assign(S, { mode: "play", queue, idx: 0, revealed: false, reviewed: 0, correct: 0, t0: Date.now(), cardT0: Date.now(), busy: false });
+  renderStudy();
+}
+
+function exitStudySession() {
+  S.mode = "home";
+  Promise.all([loadStudyToday(), refreshState()]);
+  renderStudy();
+}
+
+function renderPlayer() {
+  const card = S.queue[S.idx];
+  if (!card) return finishStudySession();
+  const total = S.queue.length;
+  const pct = Math.round((100 * S.idx) / total);
+  const receipt = S.revealed && card.quote
+    ? `<div class="mt-5 w-full max-w-lg rounded-2xl bg-sun/20 px-4 py-3 text-left text-xs leading-relaxed text-amber-900 dark:text-sun"><div class="mb-1 text-[10px] font-extrabold uppercase tracking-wider opacity-70">From your notes</div>“${esc(card.quote)}”
+        ${card.noteId ? `<button data-open-note="${esc(card.noteId)}" data-quote="${esc(card.quote)}" class="mt-1.5 block font-extrabold underline">Open the note →</button>` : ""}</div>`
+    : "";
+  const buttons = S.revealed
+    ? `<div class="grid grid-cols-4 gap-2 md:gap-3">${card.previews.map((p) => `<button data-grade="${p.grade}" class="rounded-2xl ${GRADE_STYLE[p.grade]} px-2 py-3 text-white shadow-card transition active:scale-95">
+        <span class="block text-sm font-extrabold">${GRADE_LABEL[p.grade]}</span><span class="block text-[11px] font-semibold opacity-80">${esc(p.label)}</span><span class="mt-0.5 hidden text-[10px] font-bold opacity-60 sm:block">press ${p.grade}</span></button>`).join("")}</div>`
+    : `<button id="revealBtn" class="w-full rounded-2xl bg-brand-500 py-4 text-base font-extrabold text-white shadow-card transition hover:bg-brand-600 active:scale-[0.99]">Show answer <span class="ml-1 text-xs font-bold opacity-70">(Space)</span></button>`;
+
+  $("studyBody").innerHTML = `<div class="mx-auto max-w-2xl space-y-4">
+    <div class="flex items-center gap-3"><button id="exitStudy" class="rounded-xl px-3 py-1.5 text-sm font-bold text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-ink-700">← Back</button>
+      <div class="h-2.5 flex-1 overflow-hidden rounded-full bg-slate-200 dark:bg-ink-700"><div class="h-full rounded-full bg-brand-500 transition-all" style="width:${pct}%"></div></div>
+      <span class="text-xs font-extrabold tabular-nums text-slate-400">${S.idx + 1} / ${total}</span></div>
+    <div class="flip flex min-h-[18rem] flex-col items-center justify-center rounded-3xl bg-white p-6 text-center shadow-pop ring-1 ring-slate-200/70 md:p-10 dark:bg-ink-800 dark:ring-ink-600">
+      <div class="mb-3 flex items-center gap-2 text-[11px] font-extrabold uppercase tracking-wider text-slate-400"><span class="rounded-full px-2 py-0.5 ${palette(card.course).tile} ${palette(card.course).text}">${esc(card.course)}</span>${esc(S.revealed ? "Answer" : STATE_LABEL[card.state] === "New" ? "New card" : "Question")}</div>
+      <div class="text-2xl leading-snug font-extrabold md:text-3xl">${esc(card.front)}</div>
+      ${S.revealed ? `<div class="my-5 h-px w-24 bg-slate-200 dark:bg-ink-600"></div><div class="whitespace-pre-wrap text-lg leading-relaxed text-slate-700 dark:text-slate-200">${esc(card.back)}</div>${receipt}` : ""}
+    </div>
+    ${buttons}
+    <div class="text-center text-[11px] font-semibold text-slate-400">Be honest. The scheduler uses your rating to decide when you see this again. Esc to leave.</div>
+  </div>`;
+}
+
+function revealCard() {
+  if (S.mode !== "play" || S.revealed) return;
+  S.revealed = true;
+  renderPlayer();
+}
+
+async function rateCard(grade) {
+  const card = S.queue[S.idx];
+  if (S.mode !== "play" || !S.revealed || !card || S.busy) return;
+  S.busy = true;
+  try {
+    const res = await fetch("/api/study/review", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ cardId: card.id, grade, msTaken: Date.now() - S.cardT0 }) });
+    const d = await res.json();
+    if (!res.ok) { alert(d.error || "Couldn't save that review."); return; }
+    S.reviewed++;
+    if (grade >= 2) S.correct++;
+    state.streak = d.streak;
+    // A missed card comes back in a few minutes, so it returns later in this same session.
+    if (d.card.due - Date.now() < REQUEUE_WITHIN_MS) S.queue.push({ ...card, ...d.card, previews: d.previews });
+    S.idx++;
+    S.revealed = false;
+    S.cardT0 = Date.now();
+    if (S.idx >= S.queue.length) return finishStudySession();
+    renderPlayer();
+  } finally {
+    S.busy = false;
+  }
+}
+
+async function finishStudySession() {
+  S.mode = "done";
+  // Wait for fresh counts so "study more" reflects what's really due now.
+  await Promise.all([loadStudyToday(), refreshState()]);
+  if (S.mode === "done") renderDone();
+}
+
+function renderDone() {
+  const secs = Math.max(1, Math.round((Date.now() - S.t0) / 1000));
+  const pct = S.reviewed ? Math.round((100 * S.correct) / S.reviewed) : 0;
+  const more = S.today ? S.today.counts.due + S.today.counts.learning + S.today.counts.newAvailable : 0;
+  const burst = ["🎉", "✨", "⭐", "🎊", "💫", "🧠", "🔥", "✨", "🎉", "⭐"].map((e, i) => `<span style="--x:${(i - 4.5) * 34}px;--r:${(i % 2 ? 1 : -1) * (20 + i * 9)}deg;animation-delay:${i * 40}ms">${e}</span>`).join("");
+  $("studyBody").innerHTML = `<div class="relative mx-auto max-w-md overflow-hidden rounded-3xl bg-white p-8 text-center shadow-pop ring-1 ring-slate-200/70 fade-in dark:bg-ink-800 dark:ring-ink-600">
+    <div class="confetti">${burst}</div>
+    <div class="text-6xl">🎉</div><h2 class="mt-3 text-3xl font-extrabold tracking-tight">Session complete!</h2>
+    <p class="mt-1 text-sm font-semibold text-slate-500 dark:text-slate-400">${S.reviewed ? "Every review makes the next one easier to remember." : "Nothing to review right now."}</p>
+    <div class="mt-6 grid grid-cols-3 gap-3">${statTile("Reviewed", S.reviewed, "text-brand-600 dark:text-brand-300")}${statTile("Remembered", S.reviewed ? pct + "%" : "–", "text-emerald-600 dark:text-emerald-300")}${statTile("Time", Math.floor(secs / 60) + ":" + String(secs % 60).padStart(2, "0"), "text-slate-700 dark:text-slate-200")}</div>
+    <div class="mt-4 inline-block rounded-full bg-sun/30 px-4 py-1.5 text-sm font-extrabold text-amber-800 dark:text-sun">🔥 ${state.streak}-day streak</div>
+    <div class="mt-6 flex justify-center gap-3"><button id="exitStudy" class="rounded-xl border border-slate-200 px-5 py-2.5 text-sm font-bold hover:bg-slate-50 dark:border-ink-600 dark:hover:bg-ink-700">Back to Study</button>
+      ${more ? `<button id="startStudy" class="rounded-xl bg-brand-500 px-5 py-2.5 text-sm font-extrabold text-white hover:bg-brand-600">Study ${plural(more, "more card")} →</button>` : ""}</div></div>`;
+}
+
+async function submitCard(e) {
+  e.preventDefault();
+  const course = $("cardCourse") ? $("cardCourse").value : state.course;
+  const body = { course, front: $("cardFront").value, back: $("cardBack").value, quote: $("cardQuote").value };
+  const res = await fetch("/api/study/cards", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) { $("cardError").textContent = d.error || "Couldn't add that card."; return; }
+  await loadStudyToday();
+  $("cardFront")?.focus();
+}
+
+// ---- AI usage and Pause AI ----
+function renderAi() {
+  const u = state.usage;
+  const el = $("aiChip");
+  if (!el) return;
+  const paused = state.aiPaused;
+  el.className = `flex items-center justify-between gap-2 rounded-xl px-3 py-2 text-xs font-semibold ${paused ? "bg-sun/30 text-amber-900 dark:text-sun" : "bg-slate-50 text-slate-600 dark:bg-ink-700 dark:text-slate-300"}`;
+  const calls = u ? u.today.calls : 0;
+  el.innerHTML = paused
+    ? `<span>⏸ AI paused</span><button id="aiToggle" class="rounded-lg bg-white/70 px-2 py-0.5 font-extrabold dark:bg-ink-900/40">Resume</button>`
+    : `<span title="Questions and, soon, card and exam generation. Reviewing cards uses no AI.">✨ AI on · ${calls} ${calls === 1 ? "call" : "calls"} today</span><button id="aiToggle" class="rounded-lg px-2 py-0.5 font-extrabold text-slate-400 hover:bg-white dark:hover:bg-ink-900/40">Pause</button>`;
+  $("q").placeholder = paused ? "AI is paused. Resume it in the sidebar to ask questions." : "Ask anything about your notes…";
+}
+
+async function refreshAi() {
+  try {
+    const u = await fetch("/api/usage").then((r) => r.json());
+    state.usage = u;
+    state.aiPaused = u.paused;
+  } catch {}
+  renderAi();
+}
+
+async function toggleAi() {
+  const res = await fetch("/api/settings", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ aiPaused: !state.aiPaused }) });
+  if (res.ok) state.aiPaused = (await res.json()).aiPaused;
+  await refreshAi();
+}
+
 // ---- class picker (⌘K) ----
 let pickerIndex = 0;
 function pickerItems() {
@@ -631,6 +866,19 @@ $("tryRow").addEventListener("click", async (e) => {
   if (t.course !== state.course) await selectCourse(t.course);
   ask(t.q);
 });
+$("studyBody").addEventListener("click", (e) => {
+  if (e.target.closest("#startStudy")) return startStudySession();
+  if (e.target.closest("#exitStudy")) return exitStudySession();
+  if (e.target.closest("#revealBtn")) return revealCard();
+  const g = e.target.closest("[data-grade]");
+  if (g) return rateCard(Number(g.dataset.grade));
+  const del = e.target.closest("[data-del-card]");
+  if (del) return fetch(`/api/study/cards/${encodeURIComponent(del.dataset.delCard)}`, { method: "DELETE" }).then(loadStudyToday);
+  const open = e.target.closest("[data-open-note]");
+  if (open) return openSource(open.dataset.openNote, open.dataset.quote);
+});
+$("studyBody").addEventListener("submit", (e) => { if (e.target.id === "cardForm") submitCard(e); });
+$("aiChip").addEventListener("click", (e) => { if (e.target.closest("#aiToggle")) toggleAi(); });
 $("notesSearch").addEventListener("input", renderNotes);
 $("notesGrid").addEventListener("click", (e) => { const b = e.target.closest("[data-open]"); if (b) openSource(b.dataset.open); });
 $("notesGrid").addEventListener("change", (e) => { const s = e.target.closest("[data-move]"); if (s && s.value) moveNoteTo(s.dataset.move, s.value); });
@@ -689,16 +937,24 @@ document.addEventListener("keydown", (e) => {
     if (e.key === "Enter") { e.preventDefault(); pick(renderPicker()[pickerIndex]?.id); }
     return;
   }
+  const S_ = state.study;
+  const typingNow = ["INPUT", "SELECT", "TEXTAREA"].includes(document.activeElement?.tagName);
+  if (state.view === "study" && S_.mode === "play" && !typingNow && !e.metaKey && !e.ctrlKey) {
+    if (e.key === " " || e.key === "Enter") { e.preventDefault(); S_.revealed ? rateCard(3) : revealCard(); return; }
+    if (S_.revealed && ["1", "2", "3", "4"].includes(e.key)) { e.preventDefault(); rateCard(Number(e.key)); return; }
+    if (e.key === "Escape") { if (!$("source").classList.contains("hidden")) { closeSource(); return; } exitStudySession(); return; }
+  }
   if (e.key === "Escape") { closeSource(); closeManage(); closeDoctor(); }
   const typing = ["INPUT", "SELECT", "TEXTAREA"].includes(document.activeElement?.tagName);
   if (e.key === "/" && !typing) { e.preventDefault(); setView("chat"); $("q").focus(); }
 });
 // Notes can change while you're away (background sync), so refresh when you come back.
 document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "visible" && !state.busy) { noteCache.clear(); Promise.all([refreshState(), loadNotes(), refreshGranola()]); }
+  if (document.visibilityState === "visible" && !state.busy) { noteCache.clear(); Promise.all([refreshState(), loadNotes(), refreshGranola(), loadStudyToday(), refreshAi()]); }
 });
 
 try { state.view = localStorage.getItem("view") === "notes" ? "notes" : "chat"; } catch {}
 renderGranola();
 refreshGranola();
+refreshAi();
 selectCourse("all").then(() => { if (state.view === "chat") $("q").focus(); });

@@ -39,6 +39,7 @@
       <div class="space-y-2.5 border-t border-slate-100 p-4 dark:border-ink-700">
         <div id="streak" class="flex items-center gap-2 rounded-xl bg-gradient-to-r from-orange-50 to-amber-100 px-3 py-2 text-xs text-amber-900 dark:from-orange-500/15 dark:to-amber-500/10 dark:text-amber-200"></div>
         <div id="granolaCard" class="rounded-2xl bg-brand-50 p-3 text-xs text-brand-900 dark:bg-brand-500/10 dark:text-brand-100"></div>
+        <div id="aiChip" class="flex items-center justify-between gap-2 rounded-xl px-3 py-2 text-xs font-semibold"></div>
         <div class="flex items-center justify-between gap-2">
           <label class="flex min-w-0 flex-1 cursor-pointer items-center gap-2.5 text-xs text-slate-600 dark:text-slate-300">
             <input id="demo" type="checkbox" class="peer sr-only" />
@@ -74,8 +75,9 @@
           <div class="flex gap-1">
             <button role="tab" data-view="chat" class="tab -mb-px border-b-[3px] px-4 py-2.5 text-sm font-bold transition">💬 Chat</button>
             <button role="tab" data-view="notes" class="tab -mb-px border-b-[3px] px-4 py-2.5 text-sm font-bold transition">📚 Notes <span id="notesCount" class="ml-1 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-extrabold text-slate-500 dark:bg-ink-700 dark:text-slate-300"></span></button>
+            <button role="tab" data-view="study" class="tab -mb-px border-b-[3px] px-4 py-2.5 text-sm font-bold transition">🧠 Study <span id="studyBadge" class="ml-1 hidden rounded-full bg-brand-500 px-2 py-0.5 text-[11px] font-extrabold text-white"></span></button>
           </div>
-          <button id="clearBtn" class="mb-1.5 rounded-lg px-2.5 py-1 text-xs font-semibold text-slate-400 transition hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/10">Clear chat</button>
+          <button id="clearBtn" class="mb-1.5 rounded-lg px-2.5 py-1 text-xs font-semibold text-slate-400 transition hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/10">Clear<span class="hidden sm:inline"> chat</span></button>
         </div>
       </header>
 
@@ -113,6 +115,11 @@
           </div>
         </div>
         <div id="notesGrid" class="grid min-h-0 flex-1 content-start gap-4 overflow-y-auto px-4 py-5 sm:grid-cols-2 md:px-8 xl:grid-cols-3"></div>
+      </section>
+
+      <!-- Study -->
+      <section id="studyView" class="hidden min-h-0 flex-1 flex-col overflow-y-auto">
+        <div id="studyBody" class="mx-auto w-full max-w-3xl px-4 py-6 md:px-8"></div>
       </section>
     </main>
 

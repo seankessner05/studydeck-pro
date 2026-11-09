@@ -38,6 +38,8 @@ StudyDeck fixes both. It copies my Granola notes straight into class folders (us
 - 🎬 **Demo mode** with 21 built-in sample notes, so a demo never depends on live sync or your private notes.
 - ⌨️ **Keyboard first:** `Enter` to send, `⌘K` to switch class, `/` to focus, `Esc` to close.
 - 🌙 **Dark mode**, 📱 **phone layout**, and a 🔥 **study streak** to keep you coming back.
+- 🧠 **Study tab.** FSRS spaced-repetition flashcards (the same family of scheduler Anki uses) with a daily limit, a flip-and-rate player with the next interval shown on each button, keyboard shortcuts, a 7-day forecast, accuracy, and a streak that counts studying. Cards can be added by hand for now; generating them from a lecture, with a receipt from your note on each one, is next.
+- ⏸ **AI usage meter and Pause AI.** The sidebar shows how many times Claude has been asked today. One switch turns every AI feature off; reviewing cards never uses AI.
 - 🩺 **Doctor.** One screen (or `npm run doctor`) checks your setup and says how to fix anything.
 - 🔒 **Local and private.** Notes are markdown files on your machine. No database server, no API keys, no cloud storage.
 
@@ -92,7 +94,7 @@ NotebookLM is a great product, and it also cites its sources. StudyDeck is narro
 
 ## Quick start
 
-You need **Node 22.13+** (24 recommended) and **[Claude Code](https://claude.com/claude-code)** installed and logged in (run `claude` once). No API key is required; StudyDeck uses your existing Claude login.
+You need **Node 24+** and **[Claude Code](https://claude.com/claude-code)** installed and logged in (run `claude` once). No API key is required; StudyDeck uses your existing Claude login.
 
 ```bash
 # 1. Get the code
@@ -141,11 +143,11 @@ Notes that aren't in a mapped Granola folder land in the Inbox (`./notes/unsorte
 
 ## Roadmap
 
-The goal: a Quizlet-meets-NotebookLM study partner that knows your whole semester.
+The goal: a Quizlet-meets-NotebookLM study partner that knows your whole semester. Flashcards with spaced repetition are in; the rest is in progress.
 
 - 📖 **Source library.** Add or remove anything at any time: textbook chapters (PDF or pasted), syllabi, past exams, slides, YouTube transcripts, web pages. Everything becomes searchable and cited with page numbers or timestamps.
 - 🧭 **Where am I.** Combine the syllabus, your Canvas calendar and your lecture notes into a per-class "this week, covered so far, due next" view, plus a gap check for topics you may have missed.
-- 🃏 **Study mode.** Flashcards with spaced repetition, quizzes, and original practice problems in your professor's style, each solved and re-checked independently before you see it.
+- 🃏 **Study mode, next steps.** Generate cards from lectures with verified quote receipts, then quizzes and original practice problems in your professor's style, each solved and re-checked independently before you see it. (Spaced-repetition flashcards already work.)
 - 🎯 **Weak-spot tracking** and an **exam mode**: a one-page cheat sheet and a mock exam scoped to what's been covered.
 - 🧠 **Semantic search** (local) for very large semesters.
 
