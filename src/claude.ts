@@ -95,7 +95,11 @@ export const runClaude: Runner = (opts) =>
     let final: RunResult | undefined;
     let isError = false;
     let stderr = "";
-    const timer = setTimeout(() => child.kill("SIGTERM"), opts.timeoutMs ?? 5 * 60_000);
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill("SIGTERM");
+    }, opts.timeoutMs ?? 5 * 60_000);
     opts.signal?.addEventListener("abort", () => child.kill("SIGTERM"));
 
     const handle = (line: string) => {
@@ -127,6 +131,7 @@ export const runClaude: Runner = (opts) =>
       clearTimeout(timer);
       if (buf.trim()) handle(buf);
       if (opts.signal?.aborted) return reject(new Error("Cancelled"));
+      if (timedOut) return reject(new Error("Claude took too long to answer (timed out)"));
       if (code !== 0 || isError || !final) {
         return reject(new Error((final?.text || stderr || `claude exited with code ${code}`).trim()));
       }
@@ -141,7 +146,7 @@ export function friendlyError(e: unknown): string {
   if (/ENOENT/.test(msg)) return "Couldn't find the `claude` command. Install Claude Code and make sure it's on your PATH, then restart StudyDeck.";
   if (/not logged in|\/login|authenticat|oauth/i.test(msg)) return `Claude Code isn't logged in (or its session expired). ${LOGIN_FIX}`;
   if (/rate.?limit|usage limit|overloaded|529/i.test(msg)) return "Claude is busy or you've hit your usage limit. Wait a minute and try again.";
-  if (/SIGTERM|timed? ?out|exited with code null/i.test(msg)) return "Claude took too long to answer. Try a shorter question or a single course.";
+  if (/SIGTERM|timed? ?out|took too long|exited with code (null|143|137)/i.test(msg)) return "Claude took too long to answer. If your Mac went to sleep while it was working, that freezes the request: try again. Otherwise try a shorter question or a single class.";
   if (/Cancelled/.test(msg)) return "Request cancelled.";
   return `Something went wrong talking to Claude: ${msg.slice(0, 300)}`;
 }

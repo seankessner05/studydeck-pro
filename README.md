@@ -38,7 +38,8 @@ StudyDeck fixes both. It copies my Granola notes straight into class folders (us
 - 🎬 **Demo mode** with 21 built-in sample notes, so a demo never depends on live sync or your private notes.
 - ⌨️ **Keyboard first:** `Enter` to send, `⌘K` to switch class, `/` to focus, `Esc` to close.
 - 🌙 **Dark mode**, 📱 **phone layout**, and a 🔥 **study streak** to keep you coming back.
-- 🧠 **Study tab.** FSRS spaced-repetition flashcards (the same family of scheduler Anki uses) with a daily limit, a flip-and-rate player with the next interval shown on each button, keyboard shortcuts, a 7-day forecast, accuracy, and a streak that counts studying. Cards can be added by hand for now; generating them from a lecture, with a receipt from your note on each one, is next.
+- 🧠 **Study tab.** FSRS spaced-repetition flashcards (the same family of scheduler Anki uses) with a daily limit, a flip-and-rate player with the next interval shown on each button, keyboard shortcuts, a 7-day forecast, accuracy, and a streak that counts studying. Cards can be made by hand or generated from your lectures (see below).
+- ✨ **Cards from your lectures, with receipts.** Pick lectures (or a whole class), choose how many cards per lecture, see the Claude-call estimate, and generate. Every card carries a quote copied word for word from your note. Before a card is saved, my code checks that the quote really is in the note, that any numbers on the card come from the note, that it asks one thing (not two), and that it isn't a duplicate. Cards that fail are dropped, and you can see exactly which and why. A lecture is only processed again if you edit it in Granola, and existing cards and their review history are never touched.
 - ⏸ **AI usage meter and Pause AI.** The sidebar shows how many times Claude has been asked today. One switch turns every AI feature off; reviewing cards never uses AI.
 - 🩺 **Doctor.** One screen (or `npm run doctor`) checks your setup and says how to fix anything.
 - 🔒 **Local and private.** Notes are markdown files on your machine. No database server, no API keys, no cloud storage.
@@ -116,7 +117,7 @@ Until you connect, StudyDeck uses the 21 sample notes in `./sample-notes`. Flip 
 
 Prefer the terminal? `npm run sync` does the same sync (and falls back to a slower Claude-based sync of the last 14 days if Granola isn't connected yet).
 
-**Scripts:** `npm start` (build CSS + run), `npm run dev` (auto-reload), `npm run sync`, `npm run doctor` (checks your setup and says how to fix anything), `npm run eval` (19 regression questions against the sample notes), `npm test`, `npm run typecheck`. Set `PORT` to change the port.
+**Scripts:** `npm start` (build CSS + run), `npm run dev` (auto-reload), `npm run sync`, `npm run doctor` (checks your setup and says how to fix anything), `npm run eval` (19 regression questions against the sample notes), `npm run eval:cards` (generates cards for six sample lectures and reports how many pass the checks), `npm test`, `npm run typecheck`. Set `PORT` to change the port.
 
 ### Note format
 
@@ -145,6 +146,7 @@ Notes that aren't in a mapped Granola folder land in the Inbox (`./notes/unsorte
 
 The goal: a Quizlet-meets-NotebookLM study partner that knows your whole semester. Flashcards with spaced repetition are in; the rest is in progress.
 
+- 🧩 **Quizzes, practice problems and exams** built on the same checked-receipt idea.
 - 📖 **Source library.** Add or remove anything at any time: textbook chapters (PDF or pasted), syllabi, past exams, slides, YouTube transcripts, web pages. Everything becomes searchable and cited with page numbers or timestamps.
 - 🧭 **Where am I.** Combine the syllabus, your Canvas calendar and your lecture notes into a per-class "this week, covered so far, due next" view, plus a gap check for topics you may have missed.
 - 🃏 **Study mode, next steps.** Generate cards from lectures with verified quote receipts, then quizzes and original practice problems in your professor's style, each solved and re-checked independently before you see it. (Spaced-repetition flashcards already work.)
@@ -158,13 +160,16 @@ The goal: a Quizlet-meets-NotebookLM study partner that knows your whole semeste
 - **The direct Granola connection is new.** If it ever misbehaves, `npm run sync -- --via-claude` is the slower fallback.
 - **Keyword retrieval.** When a class outgrows the context budget, ranking is keyword + recency, not semantic, so a question phrased very differently from the notes can miss.
 - **Citation checks have limits.** They catch invented notes and invented quotes, but not a real quote attached to a claim it doesn't fully support.
+- **Cards are only as good as your Granola summaries.** Generation works from the condensed notes Granola writes, not full transcripts, so a thin summary makes thin cards.
+- **Generation uses your Claude allowance** (about one call per lecture). The Study tab shows the estimate first, and Pause AI turns it off. The app keeps your Mac awake while a job runs, because a sleeping Mac freezes the calls.
+- **The checks catch fabricated quotes and numbers, not every weak card.** A card can pass and still be a poor question; review what it makes.
 - **Short memory.** Follow-up questions see only the last 6 messages of that class's chat.
 - **Single user, single machine.** Tested on macOS with Chrome; not tested on Windows.
 
 ## Development
 
 ```bash
-npm test          # 103 tests: notes, retrieval, citations, prompts, Granola parsing and sync, class registry, migrations, doctor, API
+npm test          # 170+ tests: notes, retrieval, citations, prompts, Granola parsing and sync, class registry, migrations, doctor, API
 npm run eval      # 19 real questions to Claude; reports regressions vs. the last run (needs a Claude login)
 npm run typecheck
 ```

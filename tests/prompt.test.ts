@@ -56,6 +56,11 @@ describe("login detection", () => {
     expect(parseAuthStatus('{"loggedIn": false, "authMethod": "none"}')).toEqual({ loggedIn: false, method: undefined });
     expect(parseAuthStatus("garbage")).toEqual({ loggedIn: false });
   });
+  it("explains a stalled or killed request, including a Mac that went to sleep", () => {
+    for (const msg of ["Claude took too long to answer (timed out)", "claude exited with code 143", "claude exited with code null", "killed by SIGTERM"]) {
+      expect(friendlyError(new Error(msg)), msg).toMatch(/took too long.*Mac went to sleep/);
+    }
+  });
   it("tells the student how to fix an expired session", () => {
     expect(friendlyError(new Error("Failed to authenticate: OAuth session expired and could not be refreshed"))).toContain("claude auth login");
   });

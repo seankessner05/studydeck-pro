@@ -6,6 +6,7 @@ import type { Note } from "../notes.js";
 import { normalize } from "../citations.js";
 import { addGeneratedCards, existingFronts, logGeneration } from "./cards.js";
 import { REJECT_LABEL, generateCardsForNote, jaccard, noteVersion, type Density } from "./cardgen.js";
+import { keepAwake } from "./awake.js";
 import { recordUsage } from "./usage.js";
 
 export type ItemState = "queued" | "running" | "done" | "error" | "skipped";
@@ -16,6 +17,9 @@ export interface JobItem {
   date: string;
   course: string;
   state: ItemState;
+  /** ms epoch when Claude started on this lecture, and when it finished */
+  startedAt?: number;
+  finishedAt?: number;
   created: number;
   duplicates: number;
   dropped: { front: string; why: string }[];
@@ -56,7 +60,11 @@ export class CardGenerationJobs {
   /** True until every worker has stopped, even after a cancel, so a new job can't overlap a winding-down one. */
   private active = false;
 
-  constructor(private readonly runner: Runner) {}
+  constructor(
+    private readonly runner: Runner,
+    /** Called when a job starts; returns the function that lets the Mac sleep again. Replaced in tests. */
+    private readonly awake: () => () => void = keepAwake,
+  ) {}
 
   status(): JobStatus | undefined {
     return this.job;
@@ -87,8 +95,9 @@ export class CardGenerationJobs {
     };
     this.job = job;
     this.active = true;
+    const release = this.awake();
     this.abort = new AbortController();
-    void this.run(job, notes, o, this.abort.signal);
+    void this.run(job, notes, o, this.abort.signal).finally(release);
     return job;
   }
 
@@ -102,6 +111,7 @@ export class CardGenerationJobs {
         const note = notes[i];
         const item = job.items[i];
         item.state = "running";
+        item.startedAt = Date.now();
         try {
           const r = await generateCardsForNote({
             runner: this.runner, note, courses: o.courses, density: o.density, focus: o.focus,
@@ -123,12 +133,14 @@ export class CardGenerationJobs {
           job.totals.duplicates += item.duplicates;
           job.totals.dropped += item.dropped.length;
           item.state = "done";
+          item.finishedAt = Date.now();
         } catch (e) {
           if (signal.aborted) {
             item.state = "skipped";
             return;
           }
           const message = friendlyError(e);
+          item.finishedAt = Date.now();
           item.state = "error";
           item.error = message;
           // No point asking again if Claude isn't signed in.

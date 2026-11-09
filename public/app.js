@@ -4,7 +4,7 @@ const state = {
   course: "all", view: "chat", courses: [], profiles: [], editable: false, total: 0, source: "samples", demo: false, streak: 0, busy: false,
   notes: [], granola: { connected: false, syncing: false, last: null, msg: "", authUrl: "", detail: "" },
   aiPaused: false, usage: null,
-  study: { mode: "home", today: null, cards: [], badge: 0, queue: [], idx: 0, revealed: false, reviewed: 0, correct: 0, t0: 0, cardT0: 0, busy: false },
+  study: { gen: { open: false, plan: null, selected: new Set(), density: "normal", focus: "", job: null, polling: false, error: "" }, mode: "home", today: null, cards: [], badge: 0, queue: [], idx: 0, revealed: false, reviewed: 0, correct: 0, t0: 0, cardT0: 0, busy: false },
 };
 
 // Course colors come from the registry (a palette name per course). Literal class names so Tailwind keeps them.
@@ -561,6 +561,7 @@ async function loadStudyToday() {
   $("studyBadge").textContent = S.badge;
   $("studyBadge").classList.toggle("hidden", !S.badge);
   if (state.view === "study" && S.mode === "home") renderStudyHome();
+  resumeGeneration();
 }
 
 function renderStudy() {
@@ -591,7 +592,7 @@ function renderStudyHome() {
   }).join("");
   const acc = t.accuracy;
   const cardsHtml = (S.cards || []).slice(0, 30).map((c) => `<div class="flex items-center gap-3 rounded-xl px-3 py-2 hover:bg-slate-50 dark:hover:bg-ink-700">
-      <span class="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-extrabold text-slate-500 dark:bg-ink-700 dark:text-slate-300">${STATE_LABEL[c.state]}</span>
+      <span class="shrink-0 text-base" title="${c.origin === 'generated' ? 'Made from a lecture' : 'Made by hand'}">${c.origin === "generated" ? "✨" : "✍️"}</span><span class="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-extrabold text-slate-500 dark:bg-ink-700 dark:text-slate-300">${STATE_LABEL[c.state]}</span>
       <div class="min-w-0 flex-1"><div class="truncate text-sm font-bold">${esc(c.front)}</div><div class="truncate text-xs text-slate-400">${esc(c.back)}</div></div>
       <button data-del-card="${esc(c.id)}" class="rounded-lg px-2 text-lg leading-none text-slate-300 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/10" aria-label="Delete card">×</button></div>`).join("");
   const picker = state.course === "all"
@@ -616,6 +617,7 @@ function renderStudyHome() {
         ${acc.reviews ? `<div class="text-4xl font-extrabold tabular-nums">${acc.pct}%</div><div class="mt-1 text-xs font-semibold text-slate-400">remembered, across ${plural(acc.reviews, "review")}</div>
         <div class="mt-3 h-2 overflow-hidden rounded-full bg-slate-100 dark:bg-ink-700"><div class="h-full rounded-full bg-emerald-500" style="width:${acc.pct}%"></div></div>` : '<div class="text-sm font-semibold text-slate-400">No reviews yet. Your first session starts the chart. ✨</div>'}</div>
     </div>
+    <div id="genPanel">${genPanelHtml()}</div>
 
     <div class="rounded-2xl bg-white p-5 shadow-card ring-1 ring-slate-200/70 dark:bg-ink-800 dark:ring-ink-600">
       <div class="text-xs font-extrabold uppercase tracking-wider text-slate-400">Add a card by hand</div>
@@ -626,7 +628,6 @@ function renderStudyHome() {
         <input id="cardQuote" maxlength="400" placeholder="Optional: a line from your notes as the receipt" class="w-full rounded-xl border border-slate-200 bg-transparent px-3 py-2 text-sm dark:border-ink-600" />
         <div class="flex items-center justify-between"><span id="cardError" class="text-xs text-red-600 dark:text-red-400"></span><button class="rounded-xl bg-brand-500 px-5 py-2 text-sm font-extrabold text-white hover:bg-brand-600">Add card</button></div>
       </form>
-      <div class="mt-4 rounded-xl bg-sun/20 px-4 py-3 text-xs font-semibold text-amber-900 dark:text-sun">✨ Coming next: one click turns any lecture into cards, each with a receipt from your notes.</div>
     </div>
 
     ${cardsHtml ? `<div class="rounded-2xl bg-white p-3 shadow-card ring-1 ring-slate-200/70 dark:bg-ink-800 dark:ring-ink-600"><div class="px-3 pt-2 pb-1 text-xs font-extrabold uppercase tracking-wider text-slate-400">Your cards (${k.total})</div>${cardsHtml}</div>` : ""}
@@ -736,6 +737,152 @@ async function submitCard(e) {
   if (!res.ok) { $("cardError").textContent = d.error || "Couldn't add that card."; return; }
   await loadStudyToday();
   $("cardFront")?.focus();
+}
+
+// ---- generate cards from lectures ----
+const GEN_CHIP = {
+  none: ["New", "bg-brand-100 text-brand-700 dark:bg-brand-500/20 dark:text-brand-200"],
+  generated: ["Has cards", "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300"],
+  stale: ["Edited since", "bg-sun/30 text-amber-800 dark:text-sun"],
+};
+const GEN_STATE_ICON = { queued: "⏳", running: "✍️", done: "✅", error: "⚠️", skipped: "⏭️" };
+
+async function loadGenPlan() {
+  const res = await fetch(`/api/study/generate/plan?course=${encodeURIComponent(state.course)}`);
+  if (!res.ok) return;
+  const plan = await res.json();
+  const G = S.gen;
+  G.plan = plan;
+  // Start with what's worth doing: lectures with no cards yet, or edited since their cards were made.
+  G.selected = new Set(plan.lectures.filter((l) => l.status !== "generated").slice(0, plan.maxPerJob).map((l) => l.id));
+  updateGenPanel();
+}
+
+function genJobDone(job) { return job && job.status !== "running" && !job.items.some((i) => i.state === "running" || i.state === "queued"); }
+
+function genPanelHtml() {
+  const G = S.gen;
+  if (G.job) return genJobHtml(G.job);
+  if (!G.open || !G.plan) {
+    return `<div class="flex items-center gap-4 rounded-2xl bg-gradient-to-r from-brand-50 to-fuchsia-50 p-5 ring-1 ring-brand-200/70 dark:from-brand-500/10 dark:to-fuchsia-500/10 dark:ring-brand-500/30">
+      <div class="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-white text-2xl shadow-card dark:bg-ink-800">✨</div>
+      <div class="min-w-0 flex-1"><div class="font-extrabold">Make cards from your lectures</div>
+        <div class="text-xs font-semibold text-slate-500 dark:text-slate-400">Each card comes with a quote from your note as its receipt. Cards that can't prove themselves are dropped.</div></div>
+      <button data-gen-open class="shrink-0 rounded-xl bg-brand-500 px-4 py-2 text-sm font-extrabold text-white hover:bg-brand-600">Choose lectures</button></div>`;
+  }
+  const p = G.plan;
+  const picked = p.lectures.filter((l) => G.selected.has(l.id));
+  const dens = p.densities.map((d) => `<button data-gen-density="${d.id}" class="rounded-lg px-3 py-1.5 text-xs font-extrabold transition ${G.density === d.id ? "bg-brand-500 text-white" : "bg-slate-100 text-slate-500 hover:bg-slate-200 dark:bg-ink-700 dark:text-slate-300"}">${esc(d.label)} <span class="opacity-70">≈${d.target}</span></button>`).join("");
+  const rows = p.lectures.map((l) => {
+    const [label, cls] = GEN_CHIP[l.status];
+    return `<label class="flex cursor-pointer items-center gap-3 rounded-xl px-3 py-2 hover:bg-slate-50 dark:hover:bg-ink-700">
+      <input type="checkbox" data-gen-note="${esc(l.id)}" ${G.selected.has(l.id) ? "checked" : ""} class="h-4 w-4 shrink-0 accent-brand-500" />
+      <span class="w-14 shrink-0 text-xs font-extrabold ${palette(l.course).text}">${esc(fmtDate(l.date))}</span>
+      <span class="min-w-0 flex-1 truncate text-sm font-bold">${esc(l.title)}${state.course === "all" ? ` <span class="font-mono text-[10px] font-semibold text-slate-400">${esc(l.course)}</span>` : ""}</span>
+      <span class="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-extrabold ${cls}">${l.status === "generated" ? l.cards + (l.cards === 1 ? " card" : " cards") : label}</span></label>`;
+  }).join("");
+  const n = picked.length;
+  const tooMany = n > p.maxPerJob;
+  const blocked = p.paused || p.running || !n || tooMany;
+  const note = p.paused ? `<span class="text-amber-700 dark:text-sun">⏸ AI is paused. Resume it in the sidebar to generate.</span>`
+    : tooMany ? `<span class="text-red-600 dark:text-red-400">Pick ${p.maxPerJob} lectures or fewer at a time.</span>`
+    : n ? `About <b>${plural(n, "Claude call")}</b>, one per lecture. That's like asking ${plural(n, "question")} in chat.` : "Pick at least one lecture.";
+  return `<div class="rounded-2xl bg-white p-5 shadow-card ring-1 ring-slate-200/70 dark:bg-ink-800 dark:ring-ink-600">
+    <div class="flex items-center justify-between gap-3"><div class="font-extrabold">✨ Make cards · ${esc(courseName(state.course))}</div>
+      <button data-gen-close class="rounded-lg px-2 text-xl leading-none text-slate-400 hover:bg-slate-100 dark:hover:bg-ink-700" aria-label="Close">×</button></div>
+    <div class="mt-3 flex flex-wrap items-center gap-2"><span class="text-xs font-extrabold uppercase tracking-wider text-slate-400">Cards per lecture</span>${dens}</div>
+    <input id="genFocus" value="${esc(G.focus)}" maxlength="200" placeholder="Focus (optional), e.g. only formulas, or just definitions" class="mt-3 w-full rounded-xl border border-slate-200 bg-transparent px-3 py-2 text-sm dark:border-ink-600" />
+    <div class="mt-4 flex items-center justify-between text-xs"><span class="font-extrabold uppercase tracking-wider text-slate-400">Lectures</span>
+      <span class="flex gap-3 font-bold text-brand-600 dark:text-brand-300"><button data-gen-pick="new">New only</button><button data-gen-pick="all">All</button><button data-gen-pick="none">None</button></span></div>
+    <div class="mt-1 max-h-72 overflow-y-auto rounded-xl ring-1 ring-slate-100 dark:ring-ink-700">${rows || '<div class="p-4 text-sm text-slate-400">No lectures in this class yet.</div>'}</div>
+    <div class="mt-4 flex flex-wrap items-center justify-between gap-3"><div class="text-xs font-semibold text-slate-500 dark:text-slate-400">${note}</div>
+      <button id="genGo" ${blocked ? "disabled" : ""} class="rounded-xl bg-brand-500 px-5 py-2.5 text-sm font-extrabold text-white shadow-card transition hover:bg-brand-600 active:scale-95 disabled:opacity-50">${n ? `Generate for ${plural(n, "lecture")} →` : "Generate"}</button></div>
+    ${G.error ? `<div class="mt-3 rounded-xl bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 dark:bg-red-500/10 dark:text-red-300">${esc(G.error)}</div>` : ""}
+  </div>`;
+}
+
+function genJobHtml(job) {
+  const done = genJobDone(job);
+  const settled = job.items.filter((i) => ["done", "error", "skipped"].includes(i.state)).length;
+  const pct = job.items.length ? Math.round((100 * settled) / job.items.length) : 0;
+  const t = job.totals;
+  const rows = job.items.map((i) => `<div class="flex items-center gap-3 rounded-xl px-3 py-1.5 text-sm">
+      <span class="w-5 shrink-0 text-center ${i.state === "running" ? "animate-pulse" : ""}">${GEN_STATE_ICON[i.state]}</span>
+      <span class="w-14 shrink-0 text-xs font-extrabold ${palette(i.course).text}">${esc(fmtDate(i.date))}</span>
+      <span class="min-w-0 flex-1 truncate font-bold">${esc(i.title)}</span>
+      <span class="shrink-0 text-xs font-extrabold ${i.state === "error" ? "text-red-600 dark:text-red-400" : i.state === "done" ? "text-emerald-600 dark:text-emerald-300" : "text-slate-400"}">${i.state === "done" ? `+${i.created} · ${Math.max(1, Math.round((i.finishedAt - i.startedAt) / 1000))}s` : i.state === "error" ? "failed" : i.state === "running" ? `writing… ${Math.round((Date.now() - i.startedAt) / 1000)}s` : i.state === "skipped" ? "skipped" : "waiting"}</span></div>
+      ${i.error ? `<div class="mx-3 mb-1 rounded-lg bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-700 dark:bg-red-500/10 dark:text-red-300">${esc(i.error)}</div>` : ""}`).join("");
+  const dropped = job.items.flatMap((i) => i.dropped.map((d) => ({ ...d, title: i.title })));
+  const droppedHtml = dropped.length
+    ? `<details class="mt-3 rounded-xl bg-slate-50 px-4 py-3 text-xs dark:bg-ink-700"><summary class="cursor-pointer font-extrabold">${plural(dropped.length, "card")} didn't pass the checks and were not saved</summary>
+        <ul class="mt-2 space-y-1.5 font-medium text-slate-600 dark:text-slate-300">${dropped.map((d) => `<li><span class="font-bold">${esc(d.front)}</span><br><span class="text-slate-400">${esc(d.title)} · ${esc(d.why)}</span></li>`).join("")}</ul></details>`
+    : "";
+  const head = !done ? `Writing cards… ${settled} of ${job.items.length} lectures` : job.status === "cancelled" ? "Stopped" : t.created ? `🎉 Added ${plural(t.created, "new card")}` : "Nothing new to add";
+  const sub = done
+    ? `${plural(job.items.filter((i) => i.state === "done").length, "lecture")} processed · ${t.duplicates} duplicate${t.duplicates === 1 ? "" : "s"} skipped · ${t.dropped} dropped · ${plural(t.calls, "Claude call")}`
+    : `${plural(t.created, "card")} so far · ${plural(t.calls, "Claude call")}`;
+  return `<div class="rounded-2xl bg-white p-5 shadow-card ring-1 ring-slate-200/70 dark:bg-ink-800 dark:ring-ink-600">
+    <div class="flex items-start justify-between gap-3"><div><div class="text-lg font-extrabold">${head}</div><div class="text-xs font-semibold text-slate-500 dark:text-slate-400">${sub}</div></div>
+      ${done ? "" : `<button id="genCancel" class="shrink-0 rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-bold hover:bg-slate-50 dark:border-ink-600 dark:hover:bg-ink-700">Cancel</button>`}</div>
+    <div class="mt-3 h-2.5 overflow-hidden rounded-full bg-slate-100 dark:bg-ink-700"><div class="h-full rounded-full bg-brand-500 transition-all" style="width:${done ? 100 : pct}%"></div></div>
+    <div class="mt-3 max-h-64 overflow-y-auto">${rows}</div>${droppedHtml}
+    ${done ? `<div class="mt-4 flex gap-3">${t.created ? `<button id="genStudy" class="rounded-xl bg-brand-500 px-5 py-2.5 text-sm font-extrabold text-white hover:bg-brand-600">Study them now →</button>` : ""}
+      <button id="genDismiss" class="rounded-xl border border-slate-200 px-5 py-2.5 text-sm font-bold hover:bg-slate-50 dark:border-ink-600 dark:hover:bg-ink-700">Done</button></div>` : ""}
+  </div>`;
+}
+
+function updateGenPanel() {
+  const el = $("genPanel");
+  if (el) el.innerHTML = genPanelHtml();
+}
+
+async function startGeneration() {
+  const G = S.gen;
+  G.error = "";
+  const res = await fetch("/api/study/generate", {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ course: state.course, noteIds: [...G.selected], density: G.density, focus: G.focus }),
+  });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) { G.error = d.error || "Couldn't start that."; return updateGenPanel(); }
+  G.job = d;
+  updateGenPanel();
+  pollGeneration();
+}
+
+async function pollGeneration() {
+  const G = S.gen;
+  if (G.polling) return;
+  G.polling = true;
+  try {
+    for (;;) {
+      const r = await fetch("/api/study/generate/status").then((x) => x.json());
+      if (r.job) G.job = r.job;
+      updateGenPanel();
+      if (!r.running) break;
+      await new Promise((ok) => setTimeout(ok, 1100));
+    }
+  } catch {}
+  G.polling = false;
+  noteCache.clear();
+  await Promise.all([loadStudyToday(), refreshAi()]);
+}
+
+async function resumeGeneration() {
+  if (S.gen.polling) return;
+  try {
+    const r = await fetch("/api/study/generate/status").then((x) => x.json());
+    if (r.running && r.job) { S.gen.job = r.job; updateGenPanel(); pollGeneration(); }
+  } catch {}
+}
+
+async function cancelGeneration() {
+  await fetch("/api/study/generate/cancel", { method: "POST" });
+}
+
+function dismissGeneration() {
+  Object.assign(S.gen, { job: null, open: false, error: "" });
+  updateGenPanel();
 }
 
 // ---- AI usage and Pause AI ----
@@ -867,6 +1014,21 @@ $("tryRow").addEventListener("click", async (e) => {
   ask(t.q);
 });
 $("studyBody").addEventListener("click", (e) => {
+  const G_ = S.gen;
+  if (e.target.closest("[data-gen-open]")) { G_.open = true; updateGenPanel(); return loadGenPlan(); }
+  if (e.target.closest("[data-gen-close]")) { G_.open = false; return updateGenPanel(); }
+  const dn = e.target.closest("[data-gen-density]");
+  if (dn) { G_.density = dn.dataset.genDensity; return updateGenPanel(); }
+  const pk = e.target.closest("[data-gen-pick]");
+  if (pk && G_.plan) {
+    const all = G_.plan.lectures;
+    G_.selected = new Set((pk.dataset.genPick === "all" ? all : pk.dataset.genPick === "new" ? all.filter((l) => l.status !== "generated") : []).slice(0, 500).map((l) => l.id));
+    return updateGenPanel();
+  }
+  if (e.target.closest("#genGo")) return startGeneration();
+  if (e.target.closest("#genCancel")) return cancelGeneration();
+  if (e.target.closest("#genDismiss")) return dismissGeneration();
+  if (e.target.closest("#genStudy")) { dismissGeneration(); return startStudySession(); }
   if (e.target.closest("#startStudy")) return startStudySession();
   if (e.target.closest("#exitStudy")) return exitStudySession();
   if (e.target.closest("#revealBtn")) return revealCard();
@@ -877,6 +1039,13 @@ $("studyBody").addEventListener("click", (e) => {
   const open = e.target.closest("[data-open-note]");
   if (open) return openSource(open.dataset.openNote, open.dataset.quote);
 });
+$("studyBody").addEventListener("change", (e) => {
+  const cb = e.target.closest("[data-gen-note]");
+  if (!cb) return;
+  cb.checked ? S.gen.selected.add(cb.dataset.genNote) : S.gen.selected.delete(cb.dataset.genNote);
+  updateGenPanel();
+});
+$("studyBody").addEventListener("input", (e) => { if (e.target.id === "genFocus") S.gen.focus = e.target.value; });
 $("studyBody").addEventListener("submit", (e) => { if (e.target.id === "cardForm") submitCard(e); });
 $("aiChip").addEventListener("click", (e) => { if (e.target.closest("#aiToggle")) toggleAi(); });
 $("notesSearch").addEventListener("input", renderNotes);

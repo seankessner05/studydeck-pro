@@ -4,7 +4,7 @@ import { loadNotes } from "../src/notes";
 import { DEFAULT_COURSES } from "../src/courses";
 import type { Runner } from "../src/claude";
 import {
-  DENSITY_TARGET, buildCardPrompts, checkableNumbers, generateCardsForNote, jaccard, noteVersion, parseCardsJson, sectionFor, validateCards,
+  CALL_TIMEOUT_MS, DENSITY_TARGET, buildCardPrompts, requestedCards, checkableNumbers, generateCardsForNote, isCompoundQuestion, jaccard, noteVersion, parseCardsJson, sectionFor, validateCards,
 } from "../src/study/cardgen";
 
 const notes = loadNotes("all", path.resolve("sample-notes"));
@@ -63,6 +63,37 @@ describe("card verification gate", () => {
     for (const [card, reason] of cases) expect(validateCards([card], fiscal, [], 8).rejected[0]?.reason, reason).toBe(reason);
   });
 
+  it("enforces one question per card", () => {
+    const compound = [
+      "How is producer surplus related to revenue and cost, and how does it differ from profit?",
+      "What is the objective function and what is the constraint?",
+      "When labor gets cheaper, how does the firm change inputs, and what happens to the isocost slope?",
+      "What is MRTS? What does it equal?",
+    ];
+    for (const front of compound) expect(isCompoundQuestion(front), front).toBe(true);
+    const single = [
+      "In the cost-minimization Lagrangian, what is the constraint?",
+      "When labor becomes cheaper, how does the slope of the isocost line change?",
+      "In the long run, when should a firm shut down?",
+      "For perfect substitutes with production function L + K, which input should the firm buy?",
+      "After a sales tax, which areas does the government capture as tax revenue?",
+      "What does the slope of an isocost line equal?",
+      "Cobb-Douglas with exponents 0.75 and 0.25, W=15, R=5: what condition does MRTS = W/R give between K and L?",
+      "Why does a firm with fixed cost of 20 keep producing at a loss in the short run?",
+      "Distinguish a Pareto improvement from a Pareto optimal outcome.",
+    ];
+    for (const front of single) expect(isCompoundQuestion(front), front).toBe(false);
+    const r = validateCards([{ ...good, front: "What is the multiplier, and what does MPC stand for?" }], fiscal, [], 8);
+    expect(r.rejected[0].reason).toBe("two_questions");
+  });
+
+  it("puts the front on one line and tidies stray blank lines in the back", () => {
+    const messy = { ...good, front: "What is the multiplier\n\nwhen MPC = 0.8?", back: "1 / (1 − 0.8) = 5.\n\n\n\nEach dollar raises output by five dollars." };
+    const [c] = validateCards([messy], fiscal, [], 8).accepted;
+    expect(c.front).toBe("What is the multiplier when MPC = 0.8?");
+    expect(c.back).toBe("1 / (1 − 0.8) = 5.\n\nEach dollar raises output by five dollars.");
+  });
+
   it("never returns more than the cap, and survives junk entries", () => {
     const many = Array.from({ length: 10 }, (_, i) => ({ ...good, front: `Distinct question number ${i} about ${["alpha", "beta", "gamma", "delta", "kappa", "sigma", "omega", "theta", "zeta", "lambda"][i]} concept?` }));
     expect(validateCards(many, fiscal, [], 3).accepted).toHaveLength(3);
@@ -106,9 +137,14 @@ describe("prompt", () => {
   it("carries the note, the target count, the focus and the class style", () => {
     const { system, prompt } = buildCardPrompts(fiscal, { density: "thorough", focus: "only formulas", courses: DEFAULT_COURSES });
     expect(system).toContain(`at most ${DENSITY_TARGET.thorough} cards`);
+    expect([5, 8, 14].map((n, i) => requestedCards((["light", "normal", "thorough"] as const)[i]) - n)).toEqual([2, 2, 4]);
     expect(system).toContain("EXACTLY from the note");
     expect(system).toContain("Quantitative economics");
     expect(system).toContain("ONLY a JSON array");
+    expect(system).toContain("Ask exactly ONE thing");
+    expect(system).toContain("Bad:");
+    expect(system).toContain("One question mark per card");
+    expect(system).toContain("put the setup in the front");
     expect(prompt).toContain('<note title="Fiscal Multipliers" course="ECON300"');
     expect(prompt).toContain(fiscal.body);
     expect(prompt).toContain("only formulas");
@@ -142,6 +178,17 @@ describe("generating for one lecture", () => {
   it("gives up after a second unparseable reply", async () => {
     const runner: Runner = async () => ({ text: "no json here", costUsd: 0.01 });
     await expect(generateCardsForNote({ runner, note: fiscal, courses: DEFAULT_COURSES, density: "light", existingFronts: [] })).rejects.toThrow(/JSON list/);
+  });
+
+  it("limits how long one call may take, so a stall becomes an error instead of a hang", async () => {
+    let seen: number | undefined;
+    const runner: Runner = async (o) => {
+      seen = o.timeoutMs;
+      return reply([good]);
+    };
+    await generateCardsForNote({ runner, note: fiscal, courses: DEFAULT_COURSES, density: "normal", existingFronts: [] });
+    expect(seen).toBe(CALL_TIMEOUT_MS);
+    expect(CALL_TIMEOUT_MS).toBe(150_000);
   });
 
   it("skips questions that already exist in the class", async () => {

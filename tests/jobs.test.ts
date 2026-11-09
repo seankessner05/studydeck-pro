@@ -58,6 +58,10 @@ describe("card generation job", () => {
     expect(job.items.every((i) => i.state === "done" && i.created === 2)).toBe(true);
     expect(job.totals).toMatchObject({ created: 6, calls: 3, duplicates: 0, dropped: 0 });
     expect(job.totals.costUsd).toBeCloseTo(0.06, 5);
+    for (const i of job.items) {
+      expect(i.startedAt).toBeGreaterThan(0);
+      expect(i.finishedAt).toBeGreaterThanOrEqual(i.startedAt!);
+    }
 
     const cards = listCards(db, "ECON301");
     expect(cards).toHaveLength(6);
@@ -148,6 +152,20 @@ describe("card generation job", () => {
     expect(existingFronts(db, "ECON301")).toHaveLength(2);
     expect(job.totals.created).toBe(2);
     expect(job.totals.duplicates).toBe(4);
+  });
+
+  it("keeps the Mac awake for exactly as long as a job runs", async () => {
+    const db = studyDb(tmp());
+    const events: string[] = [];
+    const jobs = new CardGenerationJobs(fakeClaude({ delayMs: 20 }), () => {
+      events.push("awake");
+      return () => events.push("released");
+    });
+    jobs.start(startOpts(db, econ301.slice(0, 2)));
+    expect(events).toEqual(["awake"]);
+    await finish(jobs);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(events).toEqual(["awake", "released"]);
   });
 
   it("allows one job at a time and reports dropped cards with reasons", async () => {

@@ -8,7 +8,15 @@ import { profileGuidance } from "../profiles.js";
 export type Density = "light" | "normal" | "thorough";
 export const DENSITY_TARGET: Record<Density, number> = { light: 5, normal: 8, thorough: 14 };
 export const DENSITIES = Object.keys(DENSITY_TARGET) as Density[];
+/**
+ * The most cards we keep from one lecture. We ask Claude for the density target (5 / 8 / 14); this is the target plus a
+ * quarter of slack, so a generous answer is not wasted but a runaway one is cut off. (An earlier version asked for the
+ * slack up front to cover cards the checks reject; that was a workaround for a bug in the checks, not a need.)
+ */
+export const requestedCards = (density: Density): number => DENSITY_TARGET[density] + Math.ceil(DENSITY_TARGET[density] / 4);
 
+/** A stalled call should become a clear error you can retry, not a job that hangs for minutes. */
+export const CALL_TIMEOUT_MS = 150_000;
 const MAX_FRONT = 300;
 const MAX_BACK = 500;
 
@@ -35,6 +43,7 @@ export type RejectReason =
   | "malformed"
   | "too_long"
   | "refers_to_notes"
+  | "two_questions"
   | "quote_too_short"
   | "quote_not_found"
   | "number_not_in_note"
@@ -44,6 +53,7 @@ export const REJECT_LABEL: Record<RejectReason, string> = {
   malformed: "malformed",
   too_long: "too long for a flashcard",
   refers_to_notes: "talks about “the notes” instead of asking a question",
+  two_questions: "asks two things at once (one idea per card works better)",
   quote_too_short: "receipt quote too short",
   quote_not_found: "receipt quote isn't in the note",
   number_not_in_note: "contains a number that isn't in the note",
@@ -74,8 +84,12 @@ export function buildCardPrompts(note: Note, opts: PromptOptions): { system: str
     "",
     "RULES",
     `1. Write at most ${n} cards. Fewer is better than padding. Each card tests ONE idea the note actually teaches: a definition, a formula, a relationship, a step in a procedure, the result of a worked example, a cause and effect, or a distinction between two things.`,
-    "2. front: a self-contained question or fill-in prompt that makes sense without seeing the note. Be specific (\"What does the slope of an isocost line equal?\", not \"What is an isocost line?\" if the note is about its slope). Never write \"according to the notes\", \"in the lecture\" or similar.",
-    "3. back: the answer, as short as possible while complete (under 40 words). Keep the professor's notation, symbols and numbers exactly as they appear in the note.",
+    "2. front: ONE self-contained question or fill-in prompt on a single line, plain text. It must make sense without seeing the note. Be specific (\"What does the slope of an isocost line equal?\"). Ask exactly ONE thing: never join two questions with \"and\" (not \"What is X, and what is Y?\" or \"What is X and why?\"). If a topic has two parts, write two separate cards. Never write \"according to the notes\", \"in the lecture\" or similar.",
+    "   Bad: \"What is the objective function, and what is the constraint?\" Good: two cards, \"In the cost-minimization Lagrangian, what is the objective function?\" and \"In the cost-minimization Lagrangian, what is the constraint?\"",
+    "   Bad: \"How is producer surplus related to revenue and cost, and how does it differ from profit?\" Good: two cards, one per question.",
+    "   Also bad: a second question word after \"and\" or \"then\" (what, how, why, which, when). One question mark per card. (An introductory phrase is fine: \"In the long run, when should a firm shut down?\" is one question.)",
+    "   For a worked example, put the setup in the front (the given numbers and what is being asked) so the card stands on its own.",
+    "3. back: the answer, as short as possible while complete (under 40 words). Keep the professor's notation, symbols and numbers exactly as they appear in the note. Plain text; a short second line is fine for a formula or a symbol key. The back must be supported by the quote or by the lines right beside it in the note.",
     "4. quote: copy 4 to 25 consecutive words EXACTLY from the note that support the back. It must appear verbatim, character for character, including symbols. No paraphrasing and no ellipses.",
     "5. section: the heading the quote sits under, copied exactly from the note (a line starting with #). If there is none, use the note's title.",
     "6. Skip administrative content: logistics, homework or exam dates, attendance, office hours, grades, announcements, guest-speaker scheduling. Only write a card from those parts if they teach a concept.",
@@ -119,6 +133,15 @@ export function parseCardsJson(text: string): unknown[] {
 // ---------- verification ----------
 
 const wordCount = (s: string) => s.trim().split(/\s+/).filter(Boolean).length;
+
+/**
+ * "What is X, and what is Y?", "How does X change and what happens to Y?": two questions on one card.
+ * A lone comma is NOT a sign of this: "In the long run, when should a firm shut down?" is one question with an
+ * introductory phrase. A second question word has to follow "and", "then" or a semicolon.
+ */
+export function isCompoundQuestion(front: string): boolean {
+  return /(?:\band\b|\bthen\b|;)\s*(?:what|how|why|which|when|where|who)\b/i.test(front) || front.split(/\?+/).filter((part) => part.trim()).length > 1;
+}
 
 /** Numbers worth checking: two or more digits, or a decimal. Thousands separators are ignored. */
 export function checkableNumbers(s: string): string[] {
@@ -170,14 +193,15 @@ export function validateCards(
 
   for (const item of raw) {
     const c = item as Partial<RawCard> | null;
-    const front = typeof c?.front === "string" ? c.front.trim() : "";
-    const back = typeof c?.back === "string" ? c.back.trim() : "";
+    const front = typeof c?.front === "string" ? c.front.replace(/\s+/g, " ").trim() : "";
+    const back = typeof c?.back === "string" ? c.back.replace(/\n{3,}/g, "\n\n").trim() : "";
     const quote = typeof c?.quote === "string" ? c.quote.trim() : "";
     const reject = (reason: RejectReason, detail?: string) => rejected.push({ front: front || "(empty)", reason, detail });
 
     if (!front || !back || !quote) { reject("malformed"); continue; }
     if (front.length > MAX_FRONT || back.length > MAX_BACK) { reject("too_long"); continue; }
     if (/\b(according to|as (stated|mentioned|said) in|in) (the|these|my) (notes?|lecture|transcript|slides?)\b/i.test(front)) { reject("refers_to_notes"); continue; }
+    if (isCompoundQuestion(front)) { reject("two_questions"); continue; }
     if (wordCount(quote) < 3) { reject("quote_too_short"); continue; }
     if (!noteNorm.includes(normalize(quote))) { reject("quote_not_found", quote.slice(0, 80)); continue; }
     const stray = checkableNumbers(`${front} ${back}`).filter((n) => !noteNumbers.has(n));
@@ -218,7 +242,7 @@ export async function generateCardsForNote(opts: {
   let raw: unknown[] | undefined;
   let nudge = "";
   for (let attempt = 0; attempt < 2 && !raw; attempt++) {
-    const r = await opts.runner({ system, prompt: prompt + nudge, signal: opts.signal });
+    const r = await opts.runner({ system, prompt: prompt + nudge, signal: opts.signal, timeoutMs: CALL_TIMEOUT_MS });
     calls++;
     costUsd += r.costUsd ?? 0;
     try {
@@ -228,6 +252,6 @@ export async function generateCardsForNote(opts: {
       nudge = "\n\nIMPORTANT: your previous reply could not be parsed. Reply with ONLY the raw JSON array, starting with [ and ending with ].";
     }
   }
-  const { accepted, rejected } = validateCards(raw ?? [], opts.note, opts.existingFronts, Math.ceil(DENSITY_TARGET[opts.density] * 1.25));
+  const { accepted, rejected } = validateCards(raw ?? [], opts.note, opts.existingFronts, requestedCards(opts.density));
   return { accepted, rejected, calls, costUsd };
 }
