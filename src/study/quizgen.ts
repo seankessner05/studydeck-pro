@@ -42,6 +42,7 @@ export type QRejectReason =
   | "number_not_in_note"
   | "duplicate"
   | "too_many_tf"
+  | "length_giveaway"
   | "key_disagrees"
   | "ambiguous"
   | "not_checked";
@@ -58,6 +59,7 @@ export const Q_REJECT_LABEL: Record<QRejectReason, string> = {
   number_not_in_note: "contains a number that isn't in the note",
   duplicate: "duplicate of an existing question",
   too_many_tf: "too many true/false questions for one lecture",
+  length_giveaway: "the right option is much longer than the others, which gives it away",
   key_disagrees: "a blind second solve picked a different answer than the key",
   ambiguous: "the second solve found more than one defensible answer",
   not_checked: "the second solve didn't answer it",
@@ -91,10 +93,10 @@ export function buildQuestionPrompts(note: Note, opts: QuizPromptOptions): { sys
     '   - "multi": a "select all that apply" question with 5 options, of which 2 or 3 are correct.',
     '   - "tf": a declarative statement that is either true or false according to the note.',
     '3. stem: ONE self-contained question (or, for "tf", one statement) on a single line, plain text. It must make sense without the note. Ask exactly ONE thing; never join two questions with "and". Never write "according to the notes", "in the lecture" or similar. For a worked example, put the given numbers in the stem. A "tf" stem is a statement, not a question: no question mark and no "True or false:" prefix.',
-    "4. options (single/multi): plain text with no letter prefixes, all of similar length and style. The correct option must NOT be noticeably longer or more detailed than the wrong ones. Wrong options must tempt a student who half-studied: a common misconception, a nearby concept from the same lecture, a reversed relationship, or a right idea used the wrong way. Each wrong option must be clearly wrong according to the note, never arguable. Never use \"all of the above\", \"none of the above\" or \"both A and B\".",
+    "4. options (single/multi): plain text with no letter prefixes, all of similar length and style. The correct option must NOT be longer or more detailed than the wrong ones: write the wrong options at the same length and with the same level of specific detail as the right one (if the right option needs a long phrase, give every wrong option an equally long phrase), so nobody can guess by picking the longest. Wrong options must tempt a student who half-studied: a common misconception, a nearby concept from the same lecture, a reversed relationship, or a right idea used the wrong way. Each wrong option must be clearly wrong according to the note, never arguable. Never use \"all of the above\", \"none of the above\" or \"both A and B\".",
     '5. "tf": a FALSE statement must be a believable near-miss of a true fact in the note (a reversed direction, a swapped term, a changed number), never an absurd claim, and without giveaway words such as "always" or "never" unless the note uses them.',
     '6. answer: for single/multi, the letters of the correct options where A is the first option (["B"], or ["A","D"] for multi). For "tf": true or false.',
-    "7. explanation: 1 to 3 sentences on why the answer is right and, for single/multi, what the most tempting wrong option gets wrong. Plain text, based only on the note.",
+    "7. explanation: 1 to 3 sentences on why the answer is right and, for single/multi, what the most tempting wrong option gets wrong. Plain text, based only on the note. Describe options by what they SAY, never by letter (\"the option about imports\", not \"option B\"): the options are shuffled before the student sees them.",
     "8. quote: copy 4 to 25 consecutive words EXACTLY from the note that support the correct answer. It must appear verbatim, character for character, including symbols. No paraphrasing and no ellipses.",
     "9. section: the heading the quote sits under, copied exactly from the note (a line starting with #). If there is none, use the note's title.",
     "10. Skip administrative content: logistics, homework or exam dates, attendance, office hours, grades, announcements. Only ask about those parts if they teach a concept.",
@@ -156,6 +158,30 @@ function shuffled<T>(items: T[], rand: () => number): T[] {
 }
 
 /**
+ * The right option's length compared with the average wrong option's, or 0 when the right option isn't the longest or
+ * is only a few characters longer (short options like "5" and "2.5" differ in length without giving anything away).
+ */
+function lengthRatio(options: string[], right: number): number {
+  const others = options.filter((_, i) => i !== right).map((o) => o.length);
+  const mean = others.reduce((a, b) => a + b, 0) / others.length;
+  const len = options[right].length;
+  return len > Math.max(...others) && len - mean >= 12 && mean > 0 ? len / mean : 0;
+}
+/** A right option this much longer than the typical wrong one is a giveaway a test-wise student would use. */
+const LENGTH_GIVEAWAY = 1.6;
+
+/**
+ * The options are shuffled after Claude writes them, so a stray "option B" in the explanation would point at the wrong
+ * option. Re-letter any such reference: `newIndexOf[i]` is where the option Claude wrote at position i ended up.
+ */
+export function reletterExplanation(text: string, newIndexOf: number[]): string {
+  // Capital letters only, as standalone letters: "answer a question" and the "a" and "d" inside "and" are not references.
+  return text.replace(/\b([Oo]ptions?|[Cc]hoices?|[Aa]nswers?)(\s+\(?)([A-E](?:\s*(?:,|and|&|or)\s*[A-E])*)\b/g, (_m, word: string, gap: string, letters: string) =>
+    word + gap + letters.replace(/\b[A-E]\b/g, (l) => LETTERS[newIndexOf[LETTERS.indexOf(l)]] ?? l),
+  );
+}
+
+/**
  * The gate every generated question has to pass before it is even shown to the second solver. Nothing the model
  * says is trusted: the receipt quote must really be in the note, and numbers in the question, the right answer and
  * the explanation must come from the note too (wrong options may use any plausible value, and the altered number in a
@@ -174,7 +200,8 @@ export function validateQuestions(
   const noteNorm = normalize(note.body);
   const noteNumbers = new Set(checkableNumbers(note.body));
   const seen = [...existingStems];
-  const tfCap = Math.max(1, Math.ceil(max * TF_SHARE));
+  // A quarter of what this lecture is likely to yield (not of the most we would ever keep), rounded down, but never zero.
+  const tfCap = Math.max(1, Math.floor(TF_SHARE * Math.min(max, raw.length)));
   let tfCount = 0;
 
   for (const item of raw) {
@@ -212,6 +239,8 @@ export function validateQuestions(
       answer = idx;
     }
 
+    if (kind === "single" && lengthRatio(options, answer[0]) >= LENGTH_GIVEAWAY) { reject("length_giveaway"); continue; }
+
     if (quote.split(/\s+/).filter(Boolean).length < 3) { reject("quote_too_short"); continue; }
     if (!noteNorm.includes(normalize(quote))) { reject("quote_not_found", quote.slice(0, 80)); continue; }
 
@@ -230,13 +259,15 @@ export function validateQuestions(
     // Shuffle single/multi options and move the answer key with them.
     let finalOptions = options;
     let finalAnswer = answer;
+    let finalExplanation = explanation;
     if (kind !== "tf") {
       const order = shuffled(options.map((_, i) => i), rand);
       finalOptions = order.map((i) => options[i]);
       finalAnswer = answer.map((a) => order.indexOf(a)).sort((a, b) => a - b);
+      finalExplanation = reletterExplanation(explanation, options.map((_, i) => order.indexOf(i)));
     }
     const claimed = typeof c.section === "string" ? c.section.trim() : "";
-    accepted.push({ kind, stem, options: finalOptions, answer: finalAnswer, explanation, quote, section: sectionFor(note.body, quote) ?? (claimed || note.title) });
+    accepted.push({ kind, stem, options: finalOptions, answer: finalAnswer, explanation: finalExplanation, quote, section: sectionFor(note.body, quote) ?? (claimed || note.title) });
   }
   return { accepted, rejected };
 }
@@ -362,11 +393,13 @@ export async function generateQuestionsForNote(opts: {
 
 // ---------- measurements for the eval ----------
 
-/** A single-answer question whose right option is clearly the longest: a giveaway a test-wise student would use. */
+/** A single-answer question whose right option is clearly the longest (a milder bar than the gate's, for measuring). */
 export function hasLengthTell(q: GeneratedQuestion): boolean {
-  if (q.kind !== "single") return false;
-  const right = q.options[q.answer[0]].length;
-  const others = q.options.filter((_, i) => i !== q.answer[0]).map((o) => o.length);
-  const mean = others.reduce((a, b) => a + b, 0) / others.length;
-  return right > Math.max(...others) && right >= 1.4 * mean;
+  return q.kind === "single" && lengthRatio(q.options, q.answer[0]) >= 1.4;
+}
+
+/** Share of single-answer questions whose right option is simply the longest one. 25% is what chance would give. */
+export function longestIsRightShare(questions: GeneratedQuestion[]): number {
+  const singles = questions.filter((q) => q.kind === "single");
+  return singles.length ? singles.filter((q) => q.options[q.answer[0]].length === Math.max(...q.options.map((o) => o.length))).length / singles.length : 0;
 }

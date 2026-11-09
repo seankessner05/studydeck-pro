@@ -40,6 +40,7 @@ StudyDeck fixes both. It copies my Granola notes straight into class folders (us
 - 🌙 **Dark mode**, 📱 **phone layout**, and a 🔥 **study streak** to keep you coming back.
 - 🧠 **Study tab.** FSRS spaced-repetition flashcards (the same family of scheduler Anki uses) with a daily limit, a flip-and-rate player with the next interval shown on each button, keyboard shortcuts, a 7-day forecast, accuracy, and a streak that counts studying. Cards can be made by hand or generated from your lectures (see below).
 - ✨ **Cards from your lectures, with receipts.** Pick lectures (or a whole class), choose how many cards per lecture, see the Claude-call estimate, and generate. Every card carries a quote copied word for word from your note. Before a card is saved, my code checks that the quote really is in the note, that any numbers on the card come from the note, that it asks one thing (not two), and that it isn't a duplicate. Cards that fail are dropped, and you can see exactly which and why. A lecture is only processed again if you edit it in Granola, and existing cards and their review history are never touched.
+- 📝 **Quizzes with a blind double-check.** The Quizzes tab holds a bank of multiple-choice (pick one or select all), and true/false questions written from your lectures. After Claude writes them, my code checks each one the same way as cards (the quote is really in the note, numbers come from the note, one idea per question, sensible options and answer key), shuffles the options so the key isn't where Claude likes to put it, and then a **second Claude call answers every question without seeing the key**. Only questions where the second solve agrees with the key are saved; if that check can't run, nothing is saved. A quiz serves questions you've never seen first, then the ones you last missed. Answers are recorded per question, a miss comes back at the end of the same quiz, and after each answer you see the explanation, the quote from your note, and an optional "explain it another way" written from your note. Scoring counts first tries only.
 - ⏸ **AI usage meter and Pause AI.** The sidebar shows how many times Claude has been asked today. One switch turns every AI feature off; reviewing cards never uses AI.
 - 🩺 **Doctor.** One screen (or `npm run doctor`) checks your setup and says how to fix anything.
 - 🔒 **Local and private.** Notes are markdown files on your machine. No database server, no API keys, no cloud storage.
@@ -89,7 +90,7 @@ NotebookLM is a great product, and it also cites its sources. StudyDeck is narro
 | "Not in your notes" as an explicit answer | **Yes, a labeled badge, by default** | Usually says the sources don't cover it |
 | Outside knowledge | **Off by default**; opt-in and labeled sentence by sentence | Mostly limited to sources |
 | Where your notes live | **Plain files on your laptop** | Google's cloud |
-| Flashcards, quizzes, study guides | Roadmap (Exam mode) | **Yes** |
+| Flashcards and quizzes | **Yes**, each with a quote from your note and (for quizzes) a blind second solve; study guides and exams are on the roadmap | **Yes** |
 | Audio overviews, PDFs, YouTube, slides as sources | No | **Yes** |
 | Setup | Node + Claude Code CLI | **None, just a browser** |
 
@@ -117,7 +118,7 @@ Until you connect, StudyDeck uses the 21 sample notes in `./sample-notes`. Flip 
 
 Prefer the terminal? `npm run sync` does the same sync (and falls back to a slower Claude-based sync of the last 14 days if Granola isn't connected yet).
 
-**Scripts:** `npm start` (build CSS + run), `npm run dev` (auto-reload), `npm run sync`, `npm run doctor` (checks your setup and says how to fix anything), `npm run eval` (19 regression questions against the sample notes), `npm run eval:cards` (generates cards for six sample lectures and reports how many pass the checks), `npm test`, `npm run typecheck`. Set `PORT` to change the port.
+**Scripts:** `npm start` (build CSS + run), `npm run dev` (auto-reload), `npm run sync`, `npm run doctor` (checks your setup and says how to fix anything), `npm run eval` (19 regression questions against the sample notes), `npm run eval:cards` (generates cards for six sample lectures and reports how many pass the checks), `npm run eval:quiz` (does the same for quiz questions and also reports how often the right answer is the longest option), `npm test`, `npm run typecheck`. Set `PORT` to change the port.
 
 ### Note format
 
@@ -144,12 +145,12 @@ Notes that aren't in a mapped Granola folder land in the Inbox (`./notes/unsorte
 
 ## Roadmap
 
-The goal: a Quizlet-meets-NotebookLM study partner that knows your whole semester. Flashcards with spaced repetition are in; the rest is in progress.
+The goal: a Quizlet-meets-NotebookLM study partner that knows your whole semester. Flashcards with spaced repetition, generated cards and quizzes are in; the rest is in progress.
 
-- 🧩 **Quizzes, practice problems and exams** built on the same checked-receipt idea.
+- 🧩 **Practice problems and exams** built on the same checked-receipt idea. Calculation problems will have their arithmetic verified by code, not by Claude's say-so.
 - 📖 **Source library.** Add or remove anything at any time: textbook chapters (PDF or pasted), syllabi, past exams, slides, YouTube transcripts, web pages. Everything becomes searchable and cited with page numbers or timestamps.
 - 🧭 **Where am I.** Combine the syllabus, your Canvas calendar and your lecture notes into a per-class "this week, covered so far, due next" view, plus a gap check for topics you may have missed.
-- 🃏 **Study mode, next steps.** Generate cards from lectures with verified quote receipts, then quizzes and original practice problems in your professor's style, each solved and re-checked independently before you see it. (Spaced-repetition flashcards already work.)
+- 🃏 **Study mode, next steps.** Original practice problems in your professor's style, each solved and re-checked independently before you see it, then a tutor mode that makes you explain an idea first. (Flashcards, generated cards and quizzes already work.)
 - 🎯 **Weak-spot tracking** and an **exam mode**: a one-page cheat sheet and a mock exam scoped to what's been covered.
 - 🧠 **Semantic search** (local) for very large semesters.
 
@@ -162,7 +163,8 @@ The goal: a Quizlet-meets-NotebookLM study partner that knows your whole semeste
 - **Citation checks have limits.** They catch invented notes and invented quotes, but not a real quote attached to a claim it doesn't fully support.
 - **Cards are only as good as your Granola summaries.** Generation works from the condensed notes Granola writes, not full transcripts, so a thin summary makes thin cards.
 - **Generation uses your Claude allowance** (about one call per lecture). The Study tab shows the estimate first, and Pause AI turns it off. The app keeps your Mac awake while a job runs, because a sleeping Mac freezes the calls.
-- **The checks catch fabricated quotes and numbers, not every weak card.** A card can pass and still be a poor question; review what it makes.
+- **The checks catch fabricated quotes and numbers, not every weak card or question.** One can pass and still be a poor question; review what it makes.
+- **Quiz questions are double-checked by the same kind of model.** In a test, the blind second solve caught all 31 answer keys I deliberately corrupted, but a shared blind spot could still slip through. True/false questions can be guessed half the time, so they are capped at a quarter of a lecture's questions. The right option is still the longest one in about half of single-answer questions (chance is a quarter), though never by a wide margin. Questions that need a calculation are mostly dropped, because the explanation contains intermediate numbers that aren't in the note; those wait for practice problems, where code checks the arithmetic.
 - **Short memory.** Follow-up questions see only the last 6 messages of that class's chat.
 - **Single user, single machine.** Tested on macOS with Chrome; not tested on Windows.
 

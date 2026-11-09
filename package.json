@@ -14,7 +14,8 @@
     "typecheck": "tsc --noEmit",
     "eval": "tsx --disable-warning=ExperimentalWarning src/eval/run.ts",
     "doctor": "tsx --disable-warning=ExperimentalWarning src/doctor-cli.ts",
-    "eval:cards": "tsx --disable-warning=ExperimentalWarning src/eval/cards.ts"
+    "eval:cards": "tsx --disable-warning=ExperimentalWarning src/eval/cards.ts",
+    "eval:quiz": "tsx --disable-warning=ExperimentalWarning src/eval/quiz.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",

@@ -5,7 +5,7 @@ import { DEFAULT_COURSES } from "../src/courses";
 import type { Runner } from "../src/claude";
 import { CALL_TIMEOUT_MS } from "../src/study/cardgen";
 import {
-  QUIZ_TARGET, buildQuestionPrompts, buildSolverPrompts, compareWithKey, generateQuestionsForNote, hasLengthTell, maxQuestions, validateQuestions,
+  QUIZ_TARGET, buildQuestionPrompts, buildSolverPrompts, compareWithKey, generateQuestionsForNote, hasLengthTell, maxQuestions, reletterExplanation, validateQuestions,
   type GeneratedQuestion,
 } from "../src/study/quizgen";
 
@@ -62,6 +62,19 @@ describe("question gate", () => {
     expect(positions.size).toBeGreaterThan(1);
   });
 
+  it("re-letters 'option B' in the explanation to follow the shuffle", () => {
+    // Claude's order was A,B,C,D = 5, 2.5, 0.8, 1.25. Make the shuffle reverse them: A→D, B→C, C→B, D→A.
+    let i = 0;
+    const reverse = () => [0, 0, 0][i++] ?? 0; // Fisher–Yates with 0 always swaps with the first element
+    const q = { ...single, explanation: "Option A is right. Option B is the value with a 0.25 tax rate, and options C and D are wrong." };
+    const r = validateQuestions([q], fiscal, [], 8, reverse).accepted[0];
+    const where = (text: string) => "ABCD"[r.options.indexOf(text)];
+    expect(r.explanation).toBe(`Option ${where("5")} is right. Option ${where("2.5")} is the value with a 0.25 tax rate, and options ${where("0.8")} and ${where("1.25")} are wrong.`);
+    // plain words that merely contain a letter are left alone
+    expect(reletterExplanation("A tax cut. The answer is a number. Choice of a firm. Pick answer a or option b.", [3, 2, 1, 0])).toBe("A tax cut. The answer is a number. Choice of a firm. Pick answer a or option b.");
+    expect(reletterExplanation("Both option A and option B are wrong; see choices C, D.", [1, 0, 3, 2])).toBe("Both option B and option A are wrong; see choices D, C.");
+  });
+
   it("rejects a receipt quote that isn't in the note", () => {
     const r = validateQuestions([{ ...single, quote: "The multiplier is always exactly ten dollars." }], fiscal, [], 8, noShuffle);
     expect(r.rejected[0]).toMatchObject({ reason: "quote_not_found" });
@@ -92,6 +105,14 @@ describe("question gate", () => {
     expect(bad(["5", "2.5", "0.8", "Both A and B"])).toBe("bad_options");
     expect(bad(["5", "2.5", "0.8", "both a firm and a household"])).toBeUndefined(); // ordinary English is fine
     expect(validateQuestions([{ ...multi, options: ["a", "b", "c"] }], fiscal, [], 8, noShuffle).rejected[0].reason).toBe("bad_options");
+  });
+
+  it("rejects a single-answer question whose right option is far longer than the others", () => {
+    const tell = { ...single, options: ["5, because 1 / (1 − 0.8) = 5 and each dollar of spending raises output by five dollars", "2.5", "0.8", "1.25"], answer: ["A"] };
+    expect(validateQuestions([tell], fiscal, [], 8, noShuffle).rejected[0]).toMatchObject({ reason: "length_giveaway" });
+    // modestly longer is fine, and a long wrong option next to a short right one is fine
+    expect(validateQuestions([{ ...single, options: ["5 times", "2.5", "0.8", "1.25"] }], fiscal, [], 8, noShuffle).accepted).toHaveLength(1);
+    expect(validateQuestions([{ ...single, options: ["5", "a rather long wrong option here", "0.8", "1.25"] }], fiscal, [], 8, noShuffle).accepted).toHaveLength(1);
   });
 
   it("strips letter prefixes from options", () => {
@@ -139,10 +160,16 @@ describe("question gate", () => {
   ];
 
   it("keeps true/false to a quarter of a lecture's questions", () => {
-    const many = facts.map(([stem, quote]) => ({ ...tf, stem, quote, explanation: "That is what the note says." }));
-    const r = validateQuestions(many, fiscal, [], 8, noShuffle);
-    expect(r.accepted).toHaveLength(2); // ceil(8 / 4)
-    expect(r.rejected.every((x) => x.reason === "too_many_tf")).toBe(true);
+    const tfs = facts.map(([stem, quote]) => ({ ...tf, stem, quote, explanation: "That is what the note says." }));
+    // four statements and nothing else: a quarter of four is one
+    const alone = validateQuestions(tfs, fiscal, [], 8, noShuffle);
+    expect(alone.accepted).toHaveLength(1);
+    expect(alone.rejected.every((x) => x.reason === "too_many_tf")).toBe(true);
+    // eight questions, half of them true/false: a quarter of eight is two
+    const singles = facts.map(([stem, quote]) => ({ ...single, stem: "Choose the statement that correctly completes this idea: " + stem.replace(/\.$/, ""), quote, explanation: "That is what the note says.", options: ["w", "x", "y", "z"] }));
+    const mixed = validateQuestions([...tfs, ...singles], fiscal, [], 8, noShuffle);
+    expect(mixed.accepted.filter((q) => q.kind === "tf")).toHaveLength(2);
+    expect(mixed.accepted.filter((q) => q.kind === "single")).toHaveLength(4);
   });
 
   it("stops at the maximum and survives junk", () => {
@@ -192,9 +219,10 @@ describe("prompts", () => {
     const { system, prompt } = buildQuestionPrompts(fiscal, { density: "thorough", focus: "only formulas", courses: DEFAULT_COURSES });
     expect(system).toContain(`at most ${QUIZ_TARGET.thorough} questions`);
     expect(system).toContain("never more than a quarter");
-    expect(system).toContain("NOT be noticeably longer");
+    expect(system).toContain("same length");
     expect(system).toContain("EXACTLY from the note");
     expect(system).toContain("ONLY a JSON array");
+    expect(system).toContain("never by letter");
     expect(system).toContain("Quantitative economics");
     expect(prompt).toContain('<note title="Fiscal Multipliers" course="ECON300"');
     expect(prompt).toContain(fiscal.body);

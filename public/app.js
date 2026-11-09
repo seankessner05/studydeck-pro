@@ -4,7 +4,10 @@ const state = {
   course: "all", view: "chat", courses: [], profiles: [], editable: false, total: 0, source: "samples", demo: false, streak: 0, busy: false,
   notes: [], granola: { connected: false, syncing: false, last: null, msg: "", authUrl: "", detail: "" },
   aiPaused: false, usage: null,
-  study: { gen: { open: false, plan: null, selected: new Set(), density: "normal", focus: "", job: null, polling: false, error: "" }, mode: "home", today: null, cards: [], badge: 0, queue: [], idx: 0, revealed: false, reviewed: 0, correct: 0, t0: 0, cardT0: 0, busy: false },
+  study: { sub: "cards", gen: { open: false, plan: null, selected: new Set(), density: "normal", focus: "", job: null, polling: false, error: "" },
+    qgen: { open: false, plan: null, selected: new Set(), density: "normal", focus: "", job: null, polling: false, error: "" },
+    quiz: { mode: "home", home: null, length: 10, error: "", runId: "", queue: [], idx: 0, picked: [], result: null, explain: null, asked: 0, correct: 0, t0: 0, qT0: 0, busy: false, summary: null },
+    mode: "home", today: null, cards: [], badge: 0, queue: [], idx: 0, revealed: false, reviewed: 0, correct: 0, t0: 0, cardT0: 0, busy: false },
 };
 
 // Course colors come from the registry (a palette name per course). Literal class names so Tailwind keeps them.
@@ -267,7 +270,13 @@ function setView(v) {
   }
   renderHeader();
   if (v === "notes") { renderNotes(); $("notesSearch").focus(); }
-  else if (v === "study") { state.study.mode === "play" ? renderStudy() : (state.study.mode = "home", renderStudy(), loadStudyToday()); }
+  else if (v === "study") {
+    const st = state.study;
+    const playing = st.mode === "play" || (st.sub === "quiz" && st.quiz.mode === "play");
+    if (!playing) { st.mode = "home"; st.quiz.mode = "home"; }
+    renderStudy();
+    if (!playing) loadStudyToday();
+  }
   else $("q").focus();
 }
 
@@ -298,6 +307,8 @@ async function selectCourse(id, { keepView = true } = {}) {
   state.course = id;
   $("notesSearch").value = "";
   state.study.mode = "home";
+  state.study.quiz.mode = "home";
+  state.study.quiz.home = null;
   await Promise.all([refreshState(), loadNotes(), loadStudyToday()]);
   const history = await fetch(`/api/chats/${encodeURIComponent(id)}`).then((r) => r.json());
   $("messages").innerHTML = "";
@@ -560,11 +571,18 @@ async function loadStudyToday() {
   S.badge = k.due + k.learning + k.newAvailable;
   $("studyBadge").textContent = S.badge;
   $("studyBadge").classList.toggle("hidden", !S.badge);
-  if (state.view === "study" && S.mode === "home") renderStudyHome();
+  if (S.sub === "quiz") await loadQuizHome();
+  else if (state.view === "study" && S.mode === "home") renderStudyHome();
   resumeGeneration();
 }
 
 function renderStudy() {
+  if (S.sub === "quiz") {
+    if (Q.mode === "play") renderQuizPlay();
+    else if (Q.mode === "done") renderQuizDone();
+    else renderQuizHome();
+    return;
+  }
   if (S.mode === "play") renderPlayer();
   else if (S.mode === "done") renderDone();
   else renderStudyHome();
@@ -599,7 +617,7 @@ function renderStudyHome() {
     ? `<select id="cardCourse" class="rounded-xl border border-slate-200 bg-transparent px-3 py-2 text-sm font-semibold dark:border-ink-600 dark:bg-ink-800">${state.courses.filter((c) => !c.archived && c.id !== "unsorted").map((c) => `<option value="${esc(c.id)}">${esc(c.id)} · ${esc(c.name)}</option>`).join("")}</select>`
     : "";
 
-  $("studyBody").innerHTML = `<div class="space-y-5 fade-in">
+  $("studyBody").innerHTML = `<div class="space-y-5 fade-in">${subSwitch()}
     <div class="relative overflow-hidden rounded-3xl bg-gradient-to-br from-brand-500 via-brand-600 to-fuchsia-500 p-6 text-white shadow-pop md:p-8">
       <div class="absolute -top-8 -right-8 text-[9rem] leading-none opacity-10">🧠</div>
       <div class="flex items-start justify-between gap-3"><div class="text-sm font-extrabold opacity-80">Study today · ${esc(name)}</div>
@@ -617,7 +635,7 @@ function renderStudyHome() {
         ${acc.reviews ? `<div class="text-4xl font-extrabold tabular-nums">${acc.pct}%</div><div class="mt-1 text-xs font-semibold text-slate-400">remembered, across ${plural(acc.reviews, "review")}</div>
         <div class="mt-3 h-2 overflow-hidden rounded-full bg-slate-100 dark:bg-ink-700"><div class="h-full rounded-full bg-emerald-500" style="width:${acc.pct}%"></div></div>` : '<div class="text-sm font-semibold text-slate-400">No reviews yet. Your first session starts the chart. ✨</div>'}</div>
     </div>
-    <div id="genPanel">${genPanelHtml()}</div>
+    <div id="genPanel">${genPanelHtml("cards")}</div>
 
     <div class="rounded-2xl bg-white p-5 shadow-card ring-1 ring-slate-200/70 dark:bg-ink-800 dark:ring-ink-600">
       <div class="text-xs font-extrabold uppercase tracking-wider text-slate-400">Add a card by hand</div>
@@ -739,36 +757,55 @@ async function submitCard(e) {
   $("cardFront")?.focus();
 }
 
-// ---- generate cards from lectures ----
+// ---- generate cards and quiz questions from lectures ----
 const GEN_CHIP = {
   none: ["New", "bg-brand-100 text-brand-700 dark:bg-brand-500/20 dark:text-brand-200"],
-  generated: ["Has cards", "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300"],
+  generated: ["Done", "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300"],
   stale: ["Edited since", "bg-sun/30 text-amber-800 dark:text-sun"],
 };
 const GEN_STATE_ICON = { queued: "⏳", running: "✍️", done: "✅", error: "⚠️", skipped: "⏭️" };
+const Q = S.quiz;
 
-async function loadGenPlan() {
-  const res = await fetch(`/api/study/generate/plan?course=${encodeURIComponent(state.course)}`);
+// The same panel makes flashcards (Flashcards tab) or quiz questions (Quizzes tab); everything that differs lives here.
+const GEN_CFG = {
+  cards: {
+    st: () => S.gen, base: "/api/study/generate", one: "card", many: "cards", icon: "✨",
+    title: "Make cards", pitch: "Each card comes with a quote from your note as its receipt. Cards that can't prove themselves are dropped.",
+    per: "Cards per lecture", callsPer: 1, working: "writing…", have: (n) => n + (n === 1 ? " card" : " cards"),
+    headBusy: "Writing cards…", doneBtn: "Study them now →",
+  },
+  quiz: {
+    st: () => S.qgen, base: "/api/study/quiz/generate", one: "question", many: "questions", icon: "📝",
+    title: "Make questions", pitch: "Each question is written from your note, checked against it, then solved blind by a second Claude call that never sees the answer key. Any that don't hold up are dropped.",
+    per: "Questions per lecture", callsPer: 2, working: "writing and checking…", have: (n) => n + (n === 1 ? " question" : " questions"),
+    headBusy: "Writing and checking questions…", doneBtn: "Quiz me now →",
+  },
+};
+const gk = () => (S.sub === "quiz" ? "quiz" : "cards");
+
+async function loadGenPlan(kind = gk()) {
+  const res = await fetch(`${GEN_CFG[kind].base}/plan?course=${encodeURIComponent(state.course)}`);
   if (!res.ok) return;
   const plan = await res.json();
-  const G = S.gen;
+  const G = GEN_CFG[kind].st();
   G.plan = plan;
-  // Start with what's worth doing: lectures with no cards yet, or edited since their cards were made.
+  // Start with what's worth doing: lectures with nothing yet, or edited since they were processed.
   G.selected = new Set(plan.lectures.filter((l) => l.status !== "generated").slice(0, plan.maxPerJob).map((l) => l.id));
-  updateGenPanel();
+  updateGenPanel(kind);
 }
 
 function genJobDone(job) { return job && job.status !== "running" && !job.items.some((i) => i.state === "running" || i.state === "queued"); }
 
-function genPanelHtml() {
-  const G = S.gen;
-  if (G.job) return genJobHtml(G.job);
+function genPanelHtml(kind = gk()) {
+  const C = GEN_CFG[kind];
+  const G = C.st();
+  if (G.job) return genJobHtml(G.job, kind);
   if (!G.open || !G.plan) {
-    return `<div class="flex items-center gap-4 rounded-2xl bg-gradient-to-r from-brand-50 to-fuchsia-50 p-5 ring-1 ring-brand-200/70 dark:from-brand-500/10 dark:to-fuchsia-500/10 dark:ring-brand-500/30">
-      <div class="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-white text-2xl shadow-card dark:bg-ink-800">✨</div>
-      <div class="min-w-0 flex-1"><div class="font-extrabold">Make cards from your lectures</div>
-        <div class="text-xs font-semibold text-slate-500 dark:text-slate-400">Each card comes with a quote from your note as its receipt. Cards that can't prove themselves are dropped.</div></div>
-      <button data-gen-open class="shrink-0 rounded-xl bg-brand-500 px-4 py-2 text-sm font-extrabold text-white hover:bg-brand-600">Choose lectures</button></div>`;
+    return `<div class="flex flex-wrap items-center gap-x-4 gap-y-3 rounded-2xl bg-gradient-to-r from-brand-50 to-fuchsia-50 p-5 ring-1 ring-brand-200/70 dark:from-brand-500/10 dark:to-fuchsia-500/10 dark:ring-brand-500/30">
+      <div class="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-white text-2xl shadow-card dark:bg-ink-800">${C.icon}</div>
+      <div class="min-w-[12rem] flex-1"><div class="font-extrabold">${kind === "quiz" ? "Make quiz questions from your lectures" : "Make cards from your lectures"}</div>
+        <div class="text-xs font-semibold text-slate-500 dark:text-slate-400">${C.pitch}</div></div>
+      <button data-gen-open class="w-full shrink-0 rounded-xl bg-brand-500 px-4 py-2 text-sm font-extrabold text-white hover:bg-brand-600 sm:w-auto">Choose lectures</button></div>`;
   }
   const p = G.plan;
   const picked = p.lectures.filter((l) => G.selected.has(l.id));
@@ -779,18 +816,20 @@ function genPanelHtml() {
       <input type="checkbox" data-gen-note="${esc(l.id)}" ${G.selected.has(l.id) ? "checked" : ""} class="h-4 w-4 shrink-0 accent-brand-500" />
       <span class="w-14 shrink-0 text-xs font-extrabold ${palette(l.course).text}">${esc(fmtDate(l.date))}</span>
       <span class="min-w-0 flex-1 truncate text-sm font-bold">${esc(l.title)}${state.course === "all" ? ` <span class="font-mono text-[10px] font-semibold text-slate-400">${esc(l.course)}</span>` : ""}</span>
-      <span class="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-extrabold ${cls}">${l.status === "generated" ? l.cards + (l.cards === 1 ? " card" : " cards") : label}</span></label>`;
+      <span class="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-extrabold ${cls}">${l.status === "generated" ? C.have(l.cards) : label}</span></label>`;
   }).join("");
   const n = picked.length;
   const tooMany = n > p.maxPerJob;
   const blocked = p.paused || p.running || !n || tooMany;
+  const calls = n * C.callsPer;
   const note = p.paused ? `<span class="text-amber-700 dark:text-sun">⏸ AI is paused. Resume it in the sidebar to generate.</span>`
+    : p.running ? `<span class="text-amber-700 dark:text-sun">Another generation job is running. Wait for it to finish.</span>`
     : tooMany ? `<span class="text-red-600 dark:text-red-400">Pick ${p.maxPerJob} lectures or fewer at a time.</span>`
-    : n ? `About <b>${plural(n, "Claude call")}</b>, one per lecture. That's like asking ${plural(n, "question")} in chat.` : "Pick at least one lecture.";
+    : n ? `About <b>${plural(calls, "Claude call")}</b>${C.callsPer > 1 ? ": a write and a double-check for each lecture" : ", one per lecture"}. That's like asking ${plural(calls, "question")} in chat.` : "Pick at least one lecture.";
   return `<div class="rounded-2xl bg-white p-5 shadow-card ring-1 ring-slate-200/70 dark:bg-ink-800 dark:ring-ink-600">
-    <div class="flex items-center justify-between gap-3"><div class="font-extrabold">✨ Make cards · ${esc(courseName(state.course))}</div>
+    <div class="flex items-center justify-between gap-3"><div class="font-extrabold">${C.icon} ${C.title} · ${esc(courseName(state.course))}</div>
       <button data-gen-close class="rounded-lg px-2 text-xl leading-none text-slate-400 hover:bg-slate-100 dark:hover:bg-ink-700" aria-label="Close">×</button></div>
-    <div class="mt-3 flex flex-wrap items-center gap-2"><span class="text-xs font-extrabold uppercase tracking-wider text-slate-400">Cards per lecture</span>${dens}</div>
+    <div class="mt-3 flex flex-wrap items-center gap-2"><span class="text-xs font-extrabold uppercase tracking-wider text-slate-400">${C.per}</span>${dens}</div>
     <input id="genFocus" value="${esc(G.focus)}" maxlength="200" placeholder="Focus (optional), e.g. only formulas, or just definitions" class="mt-3 w-full rounded-xl border border-slate-200 bg-transparent px-3 py-2 text-sm dark:border-ink-600" />
     <div class="mt-4 flex items-center justify-between text-xs"><span class="font-extrabold uppercase tracking-wider text-slate-400">Lectures</span>
       <span class="flex gap-3 font-bold text-brand-600 dark:text-brand-300"><button data-gen-pick="new">New only</button><button data-gen-pick="all">All</button><button data-gen-pick="none">None</button></span></div>
@@ -801,7 +840,8 @@ function genPanelHtml() {
   </div>`;
 }
 
-function genJobHtml(job) {
+function genJobHtml(job, kind = gk()) {
+  const C = GEN_CFG[kind];
   const done = genJobDone(job);
   const settled = job.items.filter((i) => ["done", "error", "skipped"].includes(i.state)).length;
   const pct = job.items.length ? Math.round((100 * settled) / job.items.length) : 0;
@@ -810,55 +850,59 @@ function genJobHtml(job) {
       <span class="w-5 shrink-0 text-center ${i.state === "running" ? "animate-pulse" : ""}">${GEN_STATE_ICON[i.state]}</span>
       <span class="w-14 shrink-0 text-xs font-extrabold ${palette(i.course).text}">${esc(fmtDate(i.date))}</span>
       <span class="min-w-0 flex-1 truncate font-bold">${esc(i.title)}</span>
-      <span class="shrink-0 text-xs font-extrabold ${i.state === "error" ? "text-red-600 dark:text-red-400" : i.state === "done" ? "text-emerald-600 dark:text-emerald-300" : "text-slate-400"}">${i.state === "done" ? `+${i.created} · ${Math.max(1, Math.round((i.finishedAt - i.startedAt) / 1000))}s` : i.state === "error" ? "failed" : i.state === "running" ? `writing… ${Math.round((Date.now() - i.startedAt) / 1000)}s` : i.state === "skipped" ? "skipped" : "waiting"}</span></div>
+      <span class="shrink-0 text-xs font-extrabold ${i.state === "error" ? "text-red-600 dark:text-red-400" : i.state === "done" ? "text-emerald-600 dark:text-emerald-300" : "text-slate-400"}">${i.state === "done" ? `+${i.created} · ${Math.max(1, Math.round((i.finishedAt - i.startedAt) / 1000))}s` : i.state === "error" ? "failed" : i.state === "running" ? `${C.working} ${Math.round((Date.now() - i.startedAt) / 1000)}s` : i.state === "skipped" ? "skipped" : "waiting"}</span></div>
       ${i.error ? `<div class="mx-3 mb-1 rounded-lg bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-700 dark:bg-red-500/10 dark:text-red-300">${esc(i.error)}</div>` : ""}`).join("");
   const dropped = job.items.flatMap((i) => i.dropped.map((d) => ({ ...d, title: i.title })));
   const droppedHtml = dropped.length
-    ? `<details class="mt-3 rounded-xl bg-slate-50 px-4 py-3 text-xs dark:bg-ink-700"><summary class="cursor-pointer font-extrabold">${plural(dropped.length, "card")} didn't pass the checks and were not saved</summary>
+    ? `<details class="mt-3 rounded-xl bg-slate-50 px-4 py-3 text-xs dark:bg-ink-700"><summary class="cursor-pointer font-extrabold">${plural(dropped.length, C.one)} didn't pass the checks and ${dropped.length === 1 ? "was" : "were"} not saved</summary>
         <ul class="mt-2 space-y-1.5 font-medium text-slate-600 dark:text-slate-300">${dropped.map((d) => `<li><span class="font-bold">${esc(d.front)}</span><br><span class="text-slate-400">${esc(d.title)} · ${esc(d.why)}</span></li>`).join("")}</ul></details>`
     : "";
-  const head = !done ? `Writing cards… ${settled} of ${job.items.length} lectures` : job.status === "cancelled" ? "Stopped" : t.created ? `🎉 Added ${plural(t.created, "new card")}` : "Nothing new to add";
+  const head = !done ? `${C.headBusy} ${settled} of ${job.items.length} lectures` : job.status === "cancelled" ? "Stopped" : t.created ? `🎉 Added ${plural(t.created, "new " + C.one)}` : "Nothing new to add";
   const sub = done
     ? `${plural(job.items.filter((i) => i.state === "done").length, "lecture")} processed · ${t.duplicates} duplicate${t.duplicates === 1 ? "" : "s"} skipped · ${t.dropped} dropped · ${plural(t.calls, "Claude call")}`
-    : `${plural(t.created, "card")} so far · ${plural(t.calls, "Claude call")}`;
+    : `${plural(t.created, C.one)} so far · ${plural(t.calls, "Claude call")}`;
   return `<div class="rounded-2xl bg-white p-5 shadow-card ring-1 ring-slate-200/70 dark:bg-ink-800 dark:ring-ink-600">
     <div class="flex items-start justify-between gap-3"><div><div class="text-lg font-extrabold">${head}</div><div class="text-xs font-semibold text-slate-500 dark:text-slate-400">${sub}</div></div>
       ${done ? "" : `<button id="genCancel" class="shrink-0 rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-bold hover:bg-slate-50 dark:border-ink-600 dark:hover:bg-ink-700">Cancel</button>`}</div>
     <div class="mt-3 h-2.5 overflow-hidden rounded-full bg-slate-100 dark:bg-ink-700"><div class="h-full rounded-full bg-brand-500 transition-all" style="width:${done ? 100 : pct}%"></div></div>
     <div class="mt-3 max-h-64 overflow-y-auto">${rows}</div>${droppedHtml}
-    ${done ? `<div class="mt-4 flex gap-3">${t.created ? `<button id="genStudy" class="rounded-xl bg-brand-500 px-5 py-2.5 text-sm font-extrabold text-white hover:bg-brand-600">Study them now →</button>` : ""}
+    ${done ? `<div class="mt-4 flex gap-3">${t.created ? `<button id="genStudy" class="rounded-xl bg-brand-500 px-5 py-2.5 text-sm font-extrabold text-white hover:bg-brand-600">${C.doneBtn}</button>` : ""}
       <button id="genDismiss" class="rounded-xl border border-slate-200 px-5 py-2.5 text-sm font-bold hover:bg-slate-50 dark:border-ink-600 dark:hover:bg-ink-700">Done</button></div>` : ""}
   </div>`;
 }
 
-function updateGenPanel() {
+/** Redraw the panel, but only if it is the one on screen (a job can finish while you are on the other tab). */
+function updateGenPanel(kind = gk()) {
+  if (kind !== gk()) return;
   const el = $("genPanel");
-  if (el) el.innerHTML = genPanelHtml();
+  if (el) el.innerHTML = genPanelHtml(kind);
 }
 
-async function startGeneration() {
-  const G = S.gen;
+async function startGeneration(kind = gk()) {
+  const C = GEN_CFG[kind];
+  const G = C.st();
   G.error = "";
-  const res = await fetch("/api/study/generate", {
+  const res = await fetch(C.base, {
     method: "POST", headers: { "content-type": "application/json" },
     body: JSON.stringify({ course: state.course, noteIds: [...G.selected], density: G.density, focus: G.focus }),
   });
   const d = await res.json().catch(() => ({}));
-  if (!res.ok) { G.error = d.error || "Couldn't start that."; return updateGenPanel(); }
+  if (!res.ok) { G.error = d.error || "Couldn't start that."; return updateGenPanel(kind); }
   G.job = d;
-  updateGenPanel();
-  pollGeneration();
+  updateGenPanel(kind);
+  pollGeneration(kind);
 }
 
-async function pollGeneration() {
-  const G = S.gen;
+async function pollGeneration(kind) {
+  const C = GEN_CFG[kind];
+  const G = C.st();
   if (G.polling) return;
   G.polling = true;
   try {
     for (;;) {
-      const r = await fetch("/api/study/generate/status").then((x) => x.json());
+      const r = await fetch(`${C.base}/status`).then((x) => x.json());
       if (r.job) G.job = r.job;
-      updateGenPanel();
+      updateGenPanel(kind);
       if (!r.running) break;
       await new Promise((ok) => setTimeout(ok, 1100));
     }
@@ -868,21 +912,240 @@ async function pollGeneration() {
   await Promise.all([loadStudyToday(), refreshAi()]);
 }
 
+/** After a reload or a tab switch: pick up a job that is still running on the server. */
 async function resumeGeneration() {
-  if (S.gen.polling) return;
+  for (const kind of ["cards", "quiz"]) {
+    const C = GEN_CFG[kind];
+    if (C.st().polling) continue;
+    try {
+      const r = await fetch(`${C.base}/status`).then((x) => x.json());
+      if (r.running && r.job) { C.st().job = r.job; updateGenPanel(kind); pollGeneration(kind); }
+    } catch {}
+  }
+}
+
+async function cancelGeneration(kind = gk()) {
+  await fetch(`${GEN_CFG[kind].base}/cancel`, { method: "POST" });
+}
+
+function dismissGeneration(kind = gk()) {
+  Object.assign(GEN_CFG[kind].st(), { job: null, open: false, error: "" });
+  updateGenPanel(kind);
+}
+
+// ---- quizzes ----
+const KIND_LABEL = { single: "Pick one", multi: "Select all that apply", tf: "True or false" };
+const KIND_SHORT = { single: "Pick 1", multi: "Select all", tf: "T / F" };
+const LETTER = "ABCDE";
+
+function subSwitch() {
+  const tab = (id, label) => `<button data-sub="${id}" class="flex-1 rounded-xl px-4 py-2 text-sm font-extrabold transition ${S.sub === id ? "bg-white text-brand-700 shadow-card dark:bg-ink-600 dark:text-brand-200" : "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"}">${label}</button>`;
+  return `<div class="flex gap-1 rounded-2xl bg-slate-100 p-1 dark:bg-ink-800">${tab("cards", "🃏 Flashcards")}${tab("quiz", "📝 Quizzes")}</div>`;
+}
+
+function setSub(sub) {
+  if (S.sub === sub) return;
+  S.sub = sub;
+  renderStudy();
+  loadStudyToday();
+}
+
+async function loadQuizHome() {
+  const res = await fetch(`/api/study/quiz/home?course=${encodeURIComponent(state.course)}`);
+  if (!res.ok) return;
+  Q.home = await res.json();
+  if (state.view === "study" && S.sub === "quiz" && Q.mode === "home") renderQuizHome();
+}
+
+function renderQuizHome() {
+  const h = Q.home;
+  if (!h) { $("studyBody").innerHTML = `<div class="space-y-5">${subSwitch()}<div class="py-20 text-center text-slate-400"><span class="dots"><span></span><span></span><span></span></span></div></div>`; return; }
+  const total = h.counts.total;
+  const len = Math.min(Q.length, Math.max(1, total));
+  const acc = h.accuracy;
+  const lens = [5, 10, 20].map((n) => `<button data-qlen="${n}" class="rounded-lg px-3 py-1.5 text-xs font-extrabold transition ${Q.length === n ? "bg-white text-emerald-700 shadow-card" : "bg-white/20 text-white hover:bg-white/30"}">${n}</button>`).join("");
+  const list = h.questions.slice(0, 60).map((q) => `<div class="flex items-center gap-3 rounded-xl px-3 py-2 hover:bg-slate-50 dark:hover:bg-ink-700">
+      <span class="w-16 shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-center text-[10px] font-extrabold text-slate-500 dark:bg-ink-700 dark:text-slate-300">${KIND_SHORT[q.kind]}</span>
+      <div class="min-w-0 flex-1"><div class="truncate text-sm font-bold">${esc(q.stem)}</div><div class="truncate text-xs text-slate-400">${esc(q.section || "")}${state.course === "all" ? ` · ${esc(q.course)}` : ""}</div></div>
+      ${q.asked ? `<span class="shrink-0 text-xs font-extrabold ${q.right === q.asked ? "text-emerald-600 dark:text-emerald-300" : q.right === 0 ? "text-red-600 dark:text-red-400" : "text-amber-600 dark:text-sun"}">${q.right}/${q.asked}</span>` : ""}
+      <button data-del-q="${esc(q.id)}" class="rounded-lg px-2 text-lg leading-none text-slate-300 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/10" aria-label="Delete question">×</button></div>`).join("");
+  $("studyBody").innerHTML = `<div class="space-y-5 fade-in">${subSwitch()}
+    <div class="relative overflow-hidden rounded-3xl bg-gradient-to-br from-emerald-500 via-teal-600 to-brand-600 p-6 text-white shadow-pop md:p-8">
+      <div class="absolute -top-8 -right-8 text-[9rem] leading-none opacity-10">📝</div>
+      <div class="flex items-start justify-between gap-3"><div class="text-sm font-extrabold opacity-80">Quiz yourself · ${esc(courseName(state.course))}</div>
+        <div class="rounded-full bg-white/20 px-3 py-1 text-xs font-extrabold">🔥 ${h.streak}-day streak</div></div>
+      <div class="mt-2 flex items-baseline gap-2"><span class="text-6xl font-extrabold tabular-nums">${total}</span><span class="text-lg font-bold opacity-80">${total === 1 ? "question" : "questions"} ready</span></div>
+      <div class="mt-1 text-sm font-semibold opacity-80">${total ? `${h.counts.seen} seen · new and missed questions come first` : "Make some from your lectures below."}</div>
+      <div class="mt-5 flex flex-wrap items-center gap-3">
+        <button id="startQuiz" ${total ? "" : "disabled"} class="rounded-2xl bg-white px-6 py-3 text-sm font-extrabold text-emerald-700 shadow-card transition hover:-translate-y-0.5 active:scale-95 disabled:opacity-50 disabled:hover:translate-y-0">${total ? `Start a ${len}-question quiz →` : "No questions yet"}</button>
+        <div class="flex items-center gap-1.5"><span class="text-xs font-extrabold opacity-80">Length</span>${lens}</div></div>
+      ${Q.error ? `<div class="mt-3 rounded-xl bg-white/20 px-3 py-2 text-xs font-bold">${esc(Q.error)}</div>` : ""}
+    </div>
+    <div class="grid grid-cols-3 gap-3">${statTile("In your bank", total, "text-slate-700 dark:text-slate-200")}${statTile("Seen", h.counts.seen, "text-emerald-600 dark:text-emerald-300")}${statTile("Right first try, 7 days", acc.answers ? acc.pct + "%" : "–", "text-brand-600 dark:text-brand-300")}</div>
+    <div id="genPanel">${genPanelHtml("quiz")}</div>
+    ${list ? `<details class="rounded-2xl bg-white p-3 shadow-card ring-1 ring-slate-200/70 dark:bg-ink-800 dark:ring-ink-600"><summary class="cursor-pointer px-3 py-2 text-xs font-extrabold uppercase tracking-wider text-slate-400">Your questions (${total})</summary>${list}</details>` : ""}
+  </div>`;
+}
+
+async function startQuiz() {
+  const res = await fetch("/api/study/quiz/start", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ course: state.course, length: Q.length }) });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) { Q.error = d.error || "Couldn't start a quiz."; return renderQuizHome(); }
+  Q.error = "";
+  Object.assign(Q, { mode: "play", runId: d.runId, queue: d.questions, idx: 0, picked: [], result: null, explain: null, asked: 0, correct: 0, t0: Date.now(), qT0: Date.now(), busy: false, summary: null });
+  S.sub = "quiz";
+  renderStudy();
+}
+
+function exitQuiz() {
+  Q.mode = "home";
+  Q.result = null;
+  Promise.all([loadQuizHome(), loadStudyToday(), refreshState()]);
+  renderStudy();
+}
+
+function renderQuizPlay() {
+  const q = Q.queue[Q.idx];
+  if (!q) return finishQuizRun();
+  const r = Q.result;
+  const total = Q.queue.length;
+  const pct = Math.round((100 * Q.idx) / total);
+  const isTf = q.kind === "tf";
+  const optHtml = q.options.map((o, i) => {
+    const picked = Q.picked.includes(i);
+    let cls = "border-slate-200 bg-white hover:border-brand-400 hover:bg-brand-50 dark:border-ink-600 dark:bg-ink-800 dark:hover:bg-ink-700";
+    let chip = "bg-slate-100 text-slate-500 dark:bg-ink-700 dark:text-slate-300";
+    let mark = q.kind === "multi" ? (picked ? "☑" : "☐") : "";
+    if (!r && picked) { cls = "border-brand-500 bg-brand-50 dark:border-brand-400 dark:bg-brand-500/15"; chip = "bg-brand-500 text-white"; }
+    if (r) {
+      const right = r.answer.includes(i);
+      if (right) { cls = "border-emerald-500 bg-emerald-50 dark:border-emerald-400 dark:bg-emerald-500/15"; chip = "bg-emerald-500 text-white"; mark = picked || q.kind !== "multi" ? "✓" : "✓ missed"; }
+      else if (picked) { cls = "border-red-400 bg-red-50 dark:border-red-400 dark:bg-red-500/10"; chip = "bg-red-500 text-white"; mark = "✗"; }
+      else { cls = "border-slate-100 bg-white opacity-60 dark:border-ink-700 dark:bg-ink-800"; mark = ""; }
+    }
+    return `<button data-opt="${i}" ${r ? "disabled" : ""} class="${isTf ? "justify-center py-6 text-xl" : "py-3.5 text-left text-[15px]"} flex w-full items-center gap-3 rounded-2xl border-2 px-4 font-bold transition active:scale-[0.99] ${cls}">
+      ${isTf ? "" : `<span class="grid h-8 w-8 shrink-0 place-items-center rounded-xl text-xs font-extrabold ${chip}">${LETTER[i]}</span>`}
+      <span class="${isTf ? "" : "flex-1"}">${esc(o)}</span>${mark ? `<span class="shrink-0 text-sm font-extrabold">${mark}</span>` : ""}</button>`;
+  }).join("");
+
+  let feedback = "";
+  if (r) {
+    const ex = Q.explain;
+    feedback = `<div class="fade-in space-y-3">
+      <div class="rounded-2xl px-4 py-3 ${r.correct ? "bg-emerald-100 text-emerald-900 dark:bg-emerald-500/20 dark:text-emerald-200" : "bg-red-50 text-red-900 dark:bg-red-500/10 dark:text-red-200"}">
+        <div class="text-base font-extrabold">${r.correct ? (r.attempt > 1 ? "Got it this time 💪" : "Correct! 🎉") : q.kind === "multi" ? "Not quite: you need every right option and no wrong ones" : "Not quite"}</div>
+        <div class="mt-1 text-sm leading-relaxed font-medium">${esc(r.explanation)}</div></div>
+      ${r.quote ? `<div class="rounded-2xl bg-sun/20 px-4 py-3 text-left text-xs leading-relaxed text-amber-900 dark:text-sun"><div class="mb-1 text-[10px] font-extrabold uppercase tracking-wider opacity-70">From your notes</div>“${esc(r.quote)}”
+        ${r.noteId ? `<button data-open-note="${esc(r.noteId)}" data-quote="${esc(r.quote)}" class="mt-1.5 block font-extrabold underline">Open the note →</button>` : ""}</div>` : ""}
+      ${!r.correct ? (ex && ex.text ? `<div class="rounded-2xl bg-brand-50 px-4 py-3 text-sm leading-relaxed dark:bg-brand-500/10"><div class="mb-1 text-[10px] font-extrabold uppercase tracking-wider text-brand-600 dark:text-brand-300">Another explanation · written by Claude from your note</div>${esc(ex.text)}</div>`
+        : ex && ex.loading ? `<div class="flex items-center gap-2 rounded-2xl bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-500 dark:bg-ink-700"><span class="dots"><span></span><span></span><span></span></span>Asking Claude…</div>`
+        : `<button id="explainBtn" class="rounded-xl border border-slate-200 px-4 py-2 text-sm font-bold hover:bg-slate-50 dark:border-ink-600 dark:hover:bg-ink-700">💡 Explain it another way</button>${ex && ex.error ? `<div class="mt-2 text-xs font-semibold text-red-600 dark:text-red-400">${esc(ex.error)}</div>` : ""}`) : ""}
+      <button id="nextQ" class="w-full rounded-2xl bg-brand-500 py-4 text-base font-extrabold text-white shadow-card transition hover:bg-brand-600 active:scale-[0.99]">${Q.idx + 1 >= Q.queue.length ? "Finish quiz" : "Next question"} <span class="ml-1 text-xs font-bold opacity-70">(Enter)</span></button></div>`;
+  } else if (q.kind === "multi") {
+    feedback = `<button id="checkAnswer" ${Q.picked.length ? "" : "disabled"} class="w-full rounded-2xl bg-brand-500 py-4 text-base font-extrabold text-white shadow-card transition hover:bg-brand-600 active:scale-[0.99] disabled:opacity-40">Check answer <span class="ml-1 text-xs font-bold opacity-70">(Enter)</span></button>`;
+  }
+
+  $("studyBody").innerHTML = `<div class="mx-auto max-w-2xl space-y-4">
+    <div class="flex items-center gap-3"><button id="exitQuiz" class="rounded-xl px-3 py-1.5 text-sm font-bold text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-ink-700">← Back</button>
+      <div class="h-2.5 flex-1 overflow-hidden rounded-full bg-slate-200 dark:bg-ink-700"><div class="h-full rounded-full bg-emerald-500 transition-all" style="width:${pct}%"></div></div>
+      <span class="text-xs font-extrabold tabular-nums text-slate-400">${Q.idx + 1} / ${total}</span></div>
+    <div class="rounded-3xl bg-white p-6 shadow-pop ring-1 ring-slate-200/70 md:p-8 dark:bg-ink-800 dark:ring-ink-600">
+      <div class="mb-3 flex flex-wrap items-center gap-2 text-[11px] font-extrabold uppercase tracking-wider text-slate-400"><span class="rounded-full px-2 py-0.5 ${palette(q.course).tile} ${palette(q.course).text}">${esc(q.course)}</span>${KIND_LABEL[q.kind]}${q.again ? '<span class="rounded-full bg-sun/30 px-2 py-0.5 text-amber-800 dark:text-sun">Second try</span>' : ""}</div>
+      <div class="text-xl leading-snug font-extrabold md:text-2xl">${esc(q.stem)}</div>
+    </div>
+    <div class="${isTf ? "grid grid-cols-2" : "flex flex-col"} gap-2.5">${optHtml}</div>
+    ${feedback}
+    <div class="text-center text-[11px] font-semibold text-slate-400">${r ? "Missed questions come back at the end of this quiz, and first in the next one." : q.kind === "multi" ? "Tick every option that applies, then check. Keys 1 to 5 toggle." : "Click an answer, or press " + (isTf ? "1 for True, 2 for False." : "1 to 4.") + " Esc to leave."}</div>
+  </div>`;
+}
+
+async function pickOption(i) {
+  const q = Q.queue[Q.idx];
+  if (!q || Q.result || Q.busy || i < 0 || i >= q.options.length) return;
+  if (q.kind === "multi") {
+    Q.picked = Q.picked.includes(i) ? Q.picked.filter((x) => x !== i) : [...Q.picked, i].sort((a, b) => a - b);
+    return renderQuizPlay();
+  }
+  Q.picked = [i];
+  return submitQuizAnswer();
+}
+
+async function submitQuizAnswer() {
+  const q = Q.queue[Q.idx];
+  if (!q || Q.result || Q.busy || !Q.picked.length) return;
+  Q.busy = true;
   try {
-    const r = await fetch("/api/study/generate/status").then((x) => x.json());
-    if (r.running && r.job) { S.gen.job = r.job; updateGenPanel(); pollGeneration(); }
-  } catch {}
+    const res = await fetch("/api/study/quiz/answer", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ runId: Q.runId, questionId: q.id, picked: Q.picked, msTaken: Date.now() - Q.qT0 }) });
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok) { alert(d.error || "Couldn't save that answer."); return; }
+    Q.result = d;
+    // A miss on the first try comes back once more at the end of this quiz.
+    if (d.attempt === 1 && !d.correct) Q.queue.push({ ...q, again: true });
+    renderQuizPlay();
+  } finally {
+    Q.busy = false;
+  }
 }
 
-async function cancelGeneration() {
-  await fetch("/api/study/generate/cancel", { method: "POST" });
+function nextQuizQuestion() {
+  if (!Q.result) return;
+  Q.idx++;
+  Q.picked = [];
+  Q.result = null;
+  Q.explain = null;
+  Q.qT0 = Date.now();
+  if (Q.idx >= Q.queue.length) return finishQuizRun();
+  renderQuizPlay();
 }
 
-function dismissGeneration() {
-  Object.assign(S.gen, { job: null, open: false, error: "" });
-  updateGenPanel();
+async function explainMiss() {
+  const q = Q.queue[Q.idx];
+  if (!q || !Q.result || (Q.explain && Q.explain.loading)) return;
+  Q.explain = { loading: true };
+  renderQuizPlay();
+  const res = await fetch("/api/study/quiz/explain", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ questionId: q.id, picked: Q.picked }) });
+  const d = await res.json().catch(() => ({}));
+  Q.explain = res.ok ? { text: d.text } : { error: d.error || "Couldn't get another explanation." };
+  if (Q.mode === "play") renderQuizPlay();
+  refreshAi();
+}
+
+async function finishQuizRun() {
+  const res = await fetch("/api/study/quiz/finish", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ runId: Q.runId }) });
+  const d = await res.json().catch(() => ({}));
+  Q.summary = res.ok ? d : null;
+  if (res.ok) state.streak = d.streak;
+  Q.mode = "done";
+  await Promise.all([loadQuizHome(), loadStudyToday(), refreshState()]);
+  if (Q.mode === "done") renderQuizDone();
+}
+
+function renderQuizDone() {
+  const s = Q.summary;
+  if (!s || !s.total) {
+    $("studyBody").innerHTML = `<div class="mx-auto max-w-md rounded-3xl bg-white p-8 text-center shadow-pop ring-1 ring-slate-200/70 dark:bg-ink-800 dark:ring-ink-600"><div class="text-5xl">🤷</div><h2 class="mt-3 text-2xl font-extrabold">No answers yet</h2><button id="exitQuiz" class="mt-5 rounded-xl border border-slate-200 px-5 py-2.5 text-sm font-bold dark:border-ink-600">Back to Study</button></div>`;
+    return;
+  }
+  const verdict = s.pct >= 90 ? ["🏆", "Excellent!"] : s.pct >= 70 ? ["🎉", "Solid work!"] : s.pct >= 50 ? ["💪", "Getting there"] : ["🌱", "Good practice"];
+  const mins = Math.floor(s.seconds / 60);
+  const bars = s.bySection.slice(0, 8).map((x) => {
+    const p = Math.round((100 * x.right) / x.asked);
+    return `<div class="flex items-center gap-3 text-sm"><span class="min-w-0 flex-1 truncate font-bold">${esc(x.section)}${state.course === "all" ? ` <span class="font-mono text-[10px] font-semibold text-slate-400">${esc(x.course)}</span>` : ""}</span>
+      <div class="h-2 w-24 shrink-0 overflow-hidden rounded-full bg-slate-100 dark:bg-ink-700"><div class="h-full rounded-full ${p >= 70 ? "bg-emerald-500" : p >= 40 ? "bg-amber-500" : "bg-red-500"}" style="width:${Math.max(p, 4)}%"></div></div>
+      <span class="w-10 shrink-0 text-right text-xs font-extrabold tabular-nums text-slate-500">${x.right}/${x.asked}</span></div>`;
+  }).join("");
+  const burst = s.pct >= 70 ? ["🎉", "✨", "⭐", "🎊", "💫", "📝", "🔥", "✨", "🎉", "⭐"].map((e, i) => `<span style="--x:${(i - 4.5) * 34}px;--r:${(i % 2 ? 1 : -1) * (20 + i * 9)}deg;animation-delay:${i * 40}ms">${e}</span>`).join("") : "";
+  $("studyBody").innerHTML = `<div class="relative mx-auto max-w-lg overflow-hidden rounded-3xl bg-white p-8 text-center shadow-pop ring-1 ring-slate-200/70 fade-in dark:bg-ink-800 dark:ring-ink-600">
+    <div class="confetti">${burst}</div>
+    <div class="text-6xl">${verdict[0]}</div><h2 class="mt-3 text-3xl font-extrabold tracking-tight">${verdict[1]}</h2>
+    <p class="mt-1 text-sm font-semibold text-slate-500 dark:text-slate-400">${s.correct} of ${s.total} right on the first try${s.recovered ? `, and you fixed ${s.recovered} of your misses on the second` : ""}.</p>
+    <div class="mt-6 grid grid-cols-3 gap-3">${statTile("First try", s.pct + "%", s.pct >= 70 ? "text-emerald-600 dark:text-emerald-300" : "text-amber-600 dark:text-sun")}${statTile("Missed", s.missed.length, "text-brand-600 dark:text-brand-300")}${statTile("Time", mins + ":" + String(s.seconds % 60).padStart(2, "0"), "text-slate-700 dark:text-slate-200")}</div>
+    ${bars ? `<div class="mt-6 text-left"><div class="mb-2 text-xs font-extrabold uppercase tracking-wider text-slate-400">By topic · weakest first</div><div class="space-y-2">${bars}</div></div>` : ""}
+    ${s.missed.length ? `<details class="mt-5 rounded-xl bg-slate-50 px-4 py-3 text-left text-xs dark:bg-ink-700"><summary class="cursor-pointer font-extrabold">What you missed</summary><ul class="mt-2 list-disc space-y-1 pl-4 font-medium text-slate-600 dark:text-slate-300">${s.missed.map((m) => `<li>${esc(m.stem)}</li>`).join("")}</ul></details>` : ""}
+    <div class="mt-4 inline-block rounded-full bg-sun/30 px-4 py-1.5 text-sm font-extrabold text-amber-800 dark:text-sun">🔥 ${state.streak}-day streak</div>
+    <div class="mt-6 flex justify-center gap-3"><button id="exitQuiz" class="rounded-xl border border-slate-200 px-5 py-2.5 text-sm font-bold hover:bg-slate-50 dark:border-ink-600 dark:hover:bg-ink-700">Back to Study</button>
+      <button id="startQuiz" class="rounded-xl bg-brand-500 px-5 py-2.5 text-sm font-extrabold text-white hover:bg-brand-600">Another quiz →</button></div>
+    ${s.missed.length ? '<p class="mt-3 text-[11px] font-semibold text-slate-400">Questions you missed come first next time.</p>' : ""}</div>`;
 }
 
 // ---- AI usage and Pause AI ----
@@ -1014,21 +1277,24 @@ $("tryRow").addEventListener("click", async (e) => {
   ask(t.q);
 });
 $("studyBody").addEventListener("click", (e) => {
-  const G_ = S.gen;
-  if (e.target.closest("[data-gen-open]")) { G_.open = true; updateGenPanel(); return loadGenPlan(); }
-  if (e.target.closest("[data-gen-close]")) { G_.open = false; return updateGenPanel(); }
+  const kind = gk();
+  const G_ = GEN_CFG[kind].st();
+  const tab = e.target.closest("[data-sub]");
+  if (tab) return setSub(tab.dataset.sub);
+  if (e.target.closest("[data-gen-open]")) { G_.open = true; updateGenPanel(kind); return loadGenPlan(kind); }
+  if (e.target.closest("[data-gen-close]")) { G_.open = false; return updateGenPanel(kind); }
   const dn = e.target.closest("[data-gen-density]");
-  if (dn) { G_.density = dn.dataset.genDensity; return updateGenPanel(); }
+  if (dn) { G_.density = dn.dataset.genDensity; return updateGenPanel(kind); }
   const pk = e.target.closest("[data-gen-pick]");
   if (pk && G_.plan) {
     const all = G_.plan.lectures;
     G_.selected = new Set((pk.dataset.genPick === "all" ? all : pk.dataset.genPick === "new" ? all.filter((l) => l.status !== "generated") : []).slice(0, 500).map((l) => l.id));
-    return updateGenPanel();
+    return updateGenPanel(kind);
   }
-  if (e.target.closest("#genGo")) return startGeneration();
-  if (e.target.closest("#genCancel")) return cancelGeneration();
-  if (e.target.closest("#genDismiss")) return dismissGeneration();
-  if (e.target.closest("#genStudy")) { dismissGeneration(); return startStudySession(); }
+  if (e.target.closest("#genGo")) return startGeneration(kind);
+  if (e.target.closest("#genCancel")) return cancelGeneration(kind);
+  if (e.target.closest("#genDismiss")) return dismissGeneration(kind);
+  if (e.target.closest("#genStudy")) { dismissGeneration(kind); return kind === "quiz" ? startQuiz() : startStudySession(); }
   if (e.target.closest("#startStudy")) return startStudySession();
   if (e.target.closest("#exitStudy")) return exitStudySession();
   if (e.target.closest("#revealBtn")) return revealCard();
@@ -1038,14 +1304,27 @@ $("studyBody").addEventListener("click", (e) => {
   if (del) return fetch(`/api/study/cards/${encodeURIComponent(del.dataset.delCard)}`, { method: "DELETE" }).then(loadStudyToday);
   const open = e.target.closest("[data-open-note]");
   if (open) return openSource(open.dataset.openNote, open.dataset.quote);
+  // quizzes
+  if (e.target.closest("#startQuiz")) return startQuiz();
+  if (e.target.closest("#exitQuiz")) return exitQuiz();
+  const ln = e.target.closest("[data-qlen]");
+  if (ln) { Q.length = Number(ln.dataset.qlen); return renderQuizHome(); }
+  const opt = e.target.closest("[data-opt]");
+  if (opt) return pickOption(Number(opt.dataset.opt));
+  if (e.target.closest("#checkAnswer")) return submitQuizAnswer();
+  if (e.target.closest("#nextQ")) return nextQuizQuestion();
+  if (e.target.closest("#explainBtn")) return explainMiss();
+  const dq = e.target.closest("[data-del-q]");
+  if (dq) return fetch(`/api/study/quiz/questions/${encodeURIComponent(dq.dataset.delQ)}`, { method: "DELETE" }).then(loadQuizHome);
 });
 $("studyBody").addEventListener("change", (e) => {
   const cb = e.target.closest("[data-gen-note]");
   if (!cb) return;
-  cb.checked ? S.gen.selected.add(cb.dataset.genNote) : S.gen.selected.delete(cb.dataset.genNote);
+  const G_ = GEN_CFG[gk()].st();
+  cb.checked ? G_.selected.add(cb.dataset.genNote) : G_.selected.delete(cb.dataset.genNote);
   updateGenPanel();
 });
-$("studyBody").addEventListener("input", (e) => { if (e.target.id === "genFocus") S.gen.focus = e.target.value; });
+$("studyBody").addEventListener("input", (e) => { if (e.target.id === "genFocus") GEN_CFG[gk()].st().focus = e.target.value; });
 $("studyBody").addEventListener("submit", (e) => { if (e.target.id === "cardForm") submitCard(e); });
 $("aiChip").addEventListener("click", (e) => { if (e.target.closest("#aiToggle")) toggleAi(); });
 $("notesSearch").addEventListener("input", renderNotes);
@@ -1108,7 +1387,20 @@ document.addEventListener("keydown", (e) => {
   }
   const S_ = state.study;
   const typingNow = ["INPUT", "SELECT", "TEXTAREA"].includes(document.activeElement?.tagName);
-  if (state.view === "study" && S_.mode === "play" && !typingNow && !e.metaKey && !e.ctrlKey) {
+  if (state.view === "study" && S_.sub === "quiz" && S_.quiz.mode === "play" && !typingNow && !e.metaKey && !e.ctrlKey && !e.altKey) {
+    const Qz = S_.quiz;
+    const q = Qz.queue[Qz.idx];
+    if (e.key === "Escape") { if (!$("source").classList.contains("hidden")) { closeSource(); return; } exitQuiz(); return; }
+    if (Qz.result) {
+      if (e.key === "Enter" || e.key === " " || e.key === "ArrowRight") { e.preventDefault(); nextQuizQuestion(); }
+      return;
+    }
+    if (q && /^[1-5]$/.test(e.key)) { e.preventDefault(); pickOption(Number(e.key) - 1); return; }
+    if (q && q.kind !== "tf" && /^[a-eA-E]$/.test(e.key)) { e.preventDefault(); pickOption("abcde".indexOf(e.key.toLowerCase())); return; }
+    if (q && q.kind === "multi" && e.key === "Enter") { e.preventDefault(); submitQuizAnswer(); }
+    return;
+  }
+  if (state.view === "study" && S_.sub !== "quiz" && S_.mode === "play" && !typingNow && !e.metaKey && !e.ctrlKey) {
     if (e.key === " " || e.key === "Enter") { e.preventDefault(); S_.revealed ? rateCard(3) : revealCard(); return; }
     if (S_.revealed && ["1", "2", "3", "4"].includes(e.key)) { e.preventDefault(); rateCard(Number(e.key)); return; }
     if (e.key === "Escape") { if (!$("source").classList.contains("hidden")) { closeSource(); return; } exitStudySession(); return; }
