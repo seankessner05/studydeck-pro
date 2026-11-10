@@ -18,6 +18,10 @@ import { QuizError, answerQuestion as recordQuizAnswer, deleteQuestion, finishQu
 import { QUIZ_TARGET } from "./study/quizgen.js";
 import { PROBLEM_TARGET } from "./study/problemgen.js";
 import { ExamError, createExam, daysUntil, deleteExam, getExam, inScope, listExams } from "./study/exams.js";
+import { exportCards, exportQuestions } from "./study/anki.js";
+import { matchPairs } from "./study/match.js";
+import { backupIfDue, backupNow, listBackups } from "./study/backup.js";
+import { getTutorSession, listTutorSessions, startTutor, topicsOf, tutorTurn } from "./study/tutor.js";
 import { generateWrittenQuestions, gradeWritten } from "./study/written.js";
 import { PRESETS, applyRemark, applyWrittenGrades, createSitting, getSitting, listSittings, pendingWritten, remarkInput, submitSitting, summarize, type Preset } from "./study/sittings.js";
 import { ONEPAGE_LIMIT, buildGuide, cardsForSheet, deleteSheet, generateOnePage, getSheet, listSheets, saveSheet, sheetToMarkdown } from "./study/cheatsheets.js";
@@ -628,6 +632,78 @@ export function createApp(deps: AppDeps) {
     res.json({ ok: deleteSheet(sdb(), String(req.params.id)) });
   }));
 
+  // ---- study: Anki export, Match game, backups ----
+  app.get("/api/study/export/anki", studyRoute((req, res) => {
+    const course = scopeOf(req.query.course);
+    if (!course) return res.status(404).json({ error: "Unknown class" });
+    const out = req.query.what === "questions" ? exportQuestions(sdb(), course) : exportCards(sdb(), course);
+    if (!out.count) return res.status(400).json({ error: req.query.what === "questions" ? "There are no quiz questions to export yet." : "There are no flashcards to export yet." });
+    res.setHeader("content-type", "text/plain; charset=utf-8");
+    res.setHeader("content-disposition", `attachment; filename="${out.filename}"`);
+    res.setHeader("x-studydeck-count", String(out.count));
+    res.send(out.text);
+  }));
+
+  app.get("/api/study/match", studyRoute((req, res) => {
+    const course = scopeOf(req.query.course);
+    if (!course) return res.status(404).json({ error: "Unknown class" });
+    res.json(matchPairs(sdb(), course, Number(req.query.count) || 6));
+  }));
+
+  app.get("/api/study/backups", studyRoute((_req, res) => {
+    res.json(listBackups(deps.dataDir));
+  }));
+
+  app.post("/api/study/backup", studyRoute((_req, res) => {
+    if (current().source === "samples") return res.status(400).json({ error: "You're in demo mode. Backups are for your own study data, not the sample notes." });
+    res.json(backupNow(sdb(), deps.dataDir));
+  }));
+
+  // ---- study: teach-back tutor ----
+  const noteById = (id: string) => {
+    const cur = current();
+    const course = id.split("/")[0];
+    return loadNotes(course, cur.dir, activeIdsOf(cur.courses)).find((n) => n.id === id);
+  };
+
+  app.get("/api/study/tutor/topics", studyRoute((req, res) => {
+    const note = noteById(String(req.query.noteId ?? ""));
+    if (!note) return res.status(404).json({ error: "That lecture isn't in your notes." });
+    res.json(topicsOf(note));
+  }));
+
+  app.get("/api/study/tutor/history", studyRoute((req, res) => {
+    const course = scopeOf(req.query.course);
+    if (!course) return res.status(404).json({ error: "Unknown class" });
+    const titles = titleOfNote("all");
+    res.json(listTutorSessions(sdb(), course).map((t) => ({ id: t.id, course: t.course, noteId: t.noteId, lecture: titles(t.noteId) ?? "", topic: t.topic, startedAt: t.startedAt, finishedAt: t.finishedAt, score: t.score, gaps: t.summary?.gaps.length ?? null })));
+  }));
+
+  app.post("/api/study/tutor/start", studyRoute((req, res) => {
+    const note = noteById(String(req.body?.noteId ?? ""));
+    if (!note) return res.status(404).json({ error: "That lecture isn't in your notes." });
+    const topic = String(req.body?.topic ?? note.title);
+    const known = topicsOf(note).find((t) => t.topic === topic);
+    res.json(startTutor(sdb(), { course: note.course, noteId: note.id, topic, section: known?.section ?? null }));
+  }));
+
+  app.get("/api/study/tutor/:id", studyRoute((req, res) => {
+    const t = getTutorSession(sdb(), String(req.params.id));
+    if (!t) return res.status(404).json({ error: "That session isn't there any more." });
+    res.json(t);
+  }));
+
+  app.post("/api/study/tutor/:id/turn", studyRoute(async (req, res) => {
+    if (paused()) return res.status(409).json({ error: "AI is paused, so the tutor can't answer. Resume it in the sidebar." });
+    const t = getTutorSession(sdb(), String(req.params.id));
+    if (!t) return res.status(404).json({ error: "That session isn't there any more." });
+    const note = noteById(t.noteId);
+    if (!note) return res.status(404).json({ error: "The lecture for this session is gone." });
+    const r = await tutorTurn(sdb(), { runner: deps.runner, note, courses: current().courses, sessionId: t.id, text: String(req.body?.text ?? "") });
+    recordUsage(sdb(), "tutor", r.calls, r.costUsd);
+    res.json({ ...r, streak: streakNow() });
+  }));
+
   // ---- study: numerical practice problems ----
   app.get("/api/study/problems/home", studyRoute((req, res) => {
     const course = scopeOf(req.query.course);
@@ -748,6 +824,13 @@ function main() {
     // Keep notes fresh without any clicking: shortly after start, then every 30 minutes. Free (no AI involved).
     setTimeout(() => app.locals.autoSync(redirect), 5_000).unref();
     setInterval(() => app.locals.autoSync(redirect), 30 * 60_000).unref();
+    // A daily safety copy of your study data (cards, history, quizzes, exams). Quiet if it can't run.
+    try {
+      const made = backupIfDue(studyDb(DATA_DIR, false), DATA_DIR);
+      if (made) console.log(`Backed up your study data to data/backups/${made.file}`);
+    } catch {
+      // a failed backup must never stop the app
+    }
     console.log(`StudyDeck running at http://localhost:${port}  (${c.version})`);
     if (!checkAuth().loggedIn) console.warn(`\n⚠ Claude Code isn't logged in, so questions will fail until you sign in. ${LOGIN_FIX}\n`);
   });

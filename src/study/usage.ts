@@ -3,7 +3,7 @@ import type { Db } from "../library/db.js";
 const DAY = 86_400_000;
 const startOfDay = (ms: number) => new Date(new Date(ms).setHours(0, 0, 0, 0)).getTime();
 
-export type UsageKind = "chat" | "cards" | "quiz" | "problems" | "exam" | "cheatsheet";
+export type UsageKind = "chat" | "cards" | "quiz" | "problems" | "exam" | "cheatsheet" | "tutor";
 
 /** Remember that Claude was asked something. Cost is what Claude reports at API rates, not a charge on a subscription. */
 export function recordUsage(db: Db, kind: UsageKind, calls = 1, costUsd = 0, now = new Date()) {
