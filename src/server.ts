@@ -17,6 +17,8 @@ import { CardError, NEW_PER_DAY, accuracy, addCard, buildSession, counts, covera
 import { QuizError, answerQuestion as recordQuizAnswer, deleteQuestion, finishQuiz, getQuestion, listQuestions, questionCoverage, quizAccuracy, quizCounts, startQuiz } from "./study/questions.js";
 import { QUIZ_TARGET } from "./study/quizgen.js";
 import { PROBLEM_TARGET } from "./study/problemgen.js";
+import { ExamError, createExam, daysUntil, deleteExam, getExam, inScope, listExams } from "./study/exams.js";
+import { buildPlan, insights as buildInsights, lectureProgress, readiness, weakSpots } from "./study/mastery.js";
 import { answerProblem, deleteProblem, finishPractice, listProblems, problemAccuracy, problemCounts, problemCoverage, startPractice } from "./study/problems.js";
 import { DENSITIES, DENSITY_TARGET, noteVersion, type Density } from "./study/cardgen.js";
 import { CardGenerationJobs, ProblemGenerationJobs, QuestionGenerationJobs } from "./study/jobs.js";
@@ -254,7 +256,7 @@ export function createApp(deps: AppDeps) {
     try {
       await fn(req, res);
     } catch (e) {
-      if (e instanceof CardError || e instanceof QuizError) return void res.status(400).json({ error: e.message });
+      if (e instanceof CardError || e instanceof QuizError || e instanceof ExamError) return void res.status(400).json({ error: e.message });
       res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
     }
   };
@@ -407,6 +409,63 @@ export function createApp(deps: AppDeps) {
 
   app.delete("/api/study/quiz/questions/:id", studyRoute((req, res) => {
     res.json({ ok: deleteQuestion(sdb(), String(req.params.id)) });
+  }));
+
+  // ---- study: exams, progress and the daily plan ----
+  const noteRefs = (course: string) => {
+    const cur = current();
+    return loadNotes(course, cur.dir, activeIdsOf(cur.courses)).map((n) => ({ id: n.id, course: n.course, title: n.title, date: n.date }));
+  };
+  const dueIn = (course: string) => {
+    const k = counts(sdb(), course);
+    return k.due + k.learning;
+  };
+
+  app.get("/api/study/exams", studyRoute((req, res) => {
+    const course = scopeOf(req.query.course);
+    if (!course) return res.status(404).json({ error: "Unknown class" });
+    const notes = noteRefs(course);
+    res.json(listExams(sdb(), course, new Date(), req.query.past === "1").map((e) => ({ ...e, daysLeft: daysUntil(e), lectures: inScope(e, notes).length })));
+  }));
+
+  app.post("/api/study/exams", studyRoute((req, res) => {
+    const b = req.body ?? {};
+    if (!validCourse(b.course)) return res.status(404).json({ error: "Unknown class" });
+    res.json(createExam(sdb(), { course: String(b.course), name: String(b.name ?? ""), date: String(b.date ?? ""), from: String(b.from ?? ""), to: b.to ? String(b.to) : null }));
+  }));
+
+  app.delete("/api/study/exams/:id", studyRoute((req, res) => {
+    res.json({ ok: deleteExam(sdb(), String(req.params.id)) });
+  }));
+
+  /** Mastery by lecture and section, weak spots, readiness for each exam, and plain-language insights. */
+  app.get("/api/study/progress", studyRoute((req, res) => {
+    const course = scopeOf(req.query.course);
+    if (!course) return res.status(404).json({ error: "Unknown class" });
+    const db = sdb();
+    const notes = noteRefs(course);
+    const lectures = lectureProgress(db, notes);
+    const exams = listExams(db, course).map((e) => {
+      const scoped = lectureProgress(db, inScope(e, noteRefs(e.course)));
+      return { ...e, daysLeft: daysUntil(e), lectures: scoped.length, readiness: readiness(scoped), weak: weakSpots(scoped, 3) };
+    });
+    res.json({
+      lectures: lectures.sort((a, b) => b.date.localeCompare(a.date)),
+      weakSpots: weakSpots(lectures),
+      readiness: readiness(lectures),
+      insights: buildInsights(db, lectures, studyDays(db)),
+      exams,
+    });
+  }));
+
+  app.get("/api/study/plan", studyRoute((req, res) => {
+    const course = scopeOf(req.query.course);
+    if (!course) return res.status(404).json({ error: "Unknown class" });
+    const db = sdb();
+    const exams = listExams(db, course);
+    const minutes = Math.max(10, Math.min(240, Number(req.query.minutes) || 45));
+    const plan = buildPlan({ db, exams, notes: noteRefs("all"), minutes, dueCards: dueIn });
+    res.json({ ...plan, plans: plan.plans.map((p) => ({ ...p, exam: { ...p.exam, daysLeft: p.daysLeft } })) });
   }));
 
   // ---- study: numerical practice problems ----

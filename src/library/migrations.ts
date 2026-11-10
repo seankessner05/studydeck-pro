@@ -185,4 +185,20 @@ export const MIGRATIONS: Migration[] = [
       );
     `,
   },
+  {
+    version: 6,
+    name: "study: exam dates",
+    sql: `
+      CREATE TABLE exams (
+        id         TEXT PRIMARY KEY,
+        course     TEXT NOT NULL,
+        name       TEXT NOT NULL,
+        date_ms    INTEGER NOT NULL,                -- start of the exam day, local time
+        from_date  TEXT NOT NULL,                   -- first lecture covered, YYYY-MM-DD
+        to_date    TEXT,                            -- last lecture covered (null: up to the exam day)
+        created_at INTEGER NOT NULL
+      );
+      CREATE INDEX idx_exams_course ON exams (course, date_ms);
+    `,
+  },
 ];
