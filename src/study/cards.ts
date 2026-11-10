@@ -190,7 +190,7 @@ export function accuracy(db: Db, course: string, now = new Date(), days = 7): { 
   return { reviews, correct, pct: reviews ? Math.round((100 * correct) / reviews) : null };
 }
 
-/** Local calendar days (YYYY-MM-DD) on which at least one card was reviewed or one quiz question answered. */
+/** Local calendar days (YYYY-MM-DD) on which at least one card was reviewed or one quiz question or practice problem answered. */
 export function studyDays(db: Db): string[] {
   return db
     .prepare(
@@ -198,6 +198,8 @@ export function studyDays(db: Db): string[] {
          SELECT date(reviewed_at / 1000, 'unixepoch', 'localtime') d FROM reviews
          UNION
          SELECT date(answered_at / 1000, 'unixepoch', 'localtime') d FROM quiz_answers
+         UNION
+         SELECT date(answered_at / 1000, 'unixepoch', 'localtime') d FROM problem_attempts
        ) ORDER BY d`,
     )
     .all()

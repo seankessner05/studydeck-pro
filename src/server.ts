@@ -16,8 +16,10 @@ import { studyDb } from "./study/db.js";
 import { CardError, NEW_PER_DAY, accuracy, addCard, buildSession, counts, coverage, deleteCard, forecast, listCards, reviewCard, studyDays } from "./study/cards.js";
 import { QuizError, answerQuestion as recordQuizAnswer, deleteQuestion, finishQuiz, getQuestion, listQuestions, questionCoverage, quizAccuracy, quizCounts, startQuiz } from "./study/questions.js";
 import { QUIZ_TARGET } from "./study/quizgen.js";
+import { PROBLEM_TARGET } from "./study/problemgen.js";
+import { answerProblem, deleteProblem, finishPractice, listProblems, problemAccuracy, problemCounts, problemCoverage, startPractice } from "./study/problems.js";
 import { DENSITIES, DENSITY_TARGET, noteVersion, type Density } from "./study/cardgen.js";
-import { CardGenerationJobs, QuestionGenerationJobs } from "./study/jobs.js";
+import { CardGenerationJobs, ProblemGenerationJobs, QuestionGenerationJobs } from "./study/jobs.js";
 import { recordUsage, usageSummary } from "./study/usage.js";
 import { runDoctor, type DoctorDeps } from "./doctor.js";
 import { DATA_DIR } from "./paths.js";
@@ -51,7 +53,8 @@ export function createApp(deps: AppDeps) {
   let syncing = false;
   const generation = new CardGenerationJobs(deps.runner);
   const quizGeneration = new QuestionGenerationJobs(deps.runner);
-  const anyGenerationRunning = () => generation.isRunning() || quizGeneration.isRunning();
+  const problemGeneration = new ProblemGenerationJobs(deps.runner);
+  const anyGenerationRunning = () => generation.isRunning() || quizGeneration.isRunning() || problemGeneration.isRunning();
   const lastSyncFile = path.join(deps.dataDir, "last-sync.json");
   const readLastSync = () => {
     try {
@@ -129,6 +132,7 @@ export function createApp(deps: AppDeps) {
       if (patch.aiPaused) {
         generation.cancel();
         quizGeneration.cancel();
+        problemGeneration.cancel();
       }
     }
     res.json({ ok: true, ...saveSettings(deps.dataDir, patch) });
@@ -292,9 +296,9 @@ export function createApp(deps: AppDeps) {
 
   // ---- study: generate cards and quiz questions from lectures ----
   const MAX_LECTURES_PER_JOB = 40;
-  type GenKind = "cards" | "quiz";
+  type GenKind = "cards" | "quiz" | "problems";
   const GEN: Record<GenKind, {
-    jobs: CardGenerationJobs | QuestionGenerationJobs;
+    jobs: CardGenerationJobs | QuestionGenerationJobs | ProblemGenerationJobs;
     base: string;
     what: string;
     targets: Record<Density, number>;
@@ -312,6 +316,11 @@ export function createApp(deps: AppDeps) {
       labels: { light: "Few", normal: "Normal", thorough: "Many" },
       coverage: () => new Map([...questionCoverage(sdb())].map(([id, c]) => [id, { count: c.questions, versions: c.versions }])),
     },
+    problems: {
+      jobs: problemGeneration, base: "/api/study/problems/generate", what: "practice-problem generation", targets: PROBLEM_TARGET,
+      labels: { light: "Few", normal: "Normal", thorough: "Many" },
+      coverage: () => new Map([...problemCoverage(sdb())].map(([id, c]) => [id, { count: c.problems, versions: c.versions }])),
+    },
   };
 
   /** Lectures in scope with their status: nothing made yet, made, or made from an older version of the note. */
@@ -327,7 +336,7 @@ export function createApp(deps: AppDeps) {
       .sort((a, b) => b.note.date.localeCompare(a.note.date) || a.note.title.localeCompare(b.note.title));
   };
 
-  for (const kind of ["cards", "quiz"] as const) {
+  for (const kind of ["cards", "quiz", "problems"] as const) {
     const g = GEN[kind];
 
     app.get(`${g.base}/plan`, studyRoute((req, res) => {
@@ -356,7 +365,7 @@ export function createApp(deps: AppDeps) {
       const picked = Array.isArray(wanted)
         ? all.filter((l) => (wanted as unknown[]).includes(l.note.id))
         : all.filter((l) => l.status !== "generated");
-      if (!picked.length) return res.status(400).json({ error: `Nothing to generate: every lecture here already has ${kind === "quiz" ? "questions" : "cards"}. Pick a lecture to make more.` });
+      if (!picked.length) return res.status(400).json({ error: `Nothing to generate: every lecture here already has ${kind === "quiz" ? "questions" : kind === "problems" ? "problems" : "cards"}. Pick a lecture to make more.` });
       if (picked.length > MAX_LECTURES_PER_JOB) return res.status(400).json({ error: `Pick ${MAX_LECTURES_PER_JOB} lectures or fewer at a time, so one job can't spend too much of your allowance.` });
       const cur = current();
       res.json(g.jobs.start({ db: sdb(), notes: picked.map((l) => l.note), courses: cur.courses, course, density, focus: typeof b.focus === "string" ? b.focus : undefined }));
@@ -398,6 +407,36 @@ export function createApp(deps: AppDeps) {
 
   app.delete("/api/study/quiz/questions/:id", studyRoute((req, res) => {
     res.json({ ok: deleteQuestion(sdb(), String(req.params.id)) });
+  }));
+
+  // ---- study: numerical practice problems ----
+  app.get("/api/study/problems/home", studyRoute((req, res) => {
+    const course = scopeOf(req.query.course);
+    if (!course) return res.status(404).json({ error: "Unknown class" });
+    const db = sdb();
+    res.json({ counts: problemCounts(db, course), accuracy: problemAccuracy(db, course), streak: streakNow(), problems: listProblems(db, course, 300).map((p) => ({ id: p.id, course: p.course, noteId: p.noteId, section: p.section, stem: p.stem, difficulty: p.difficulty, asked: p.asked, right: p.right })) });
+  }));
+
+  app.post("/api/study/problems/start", studyRoute((req, res) => {
+    const b = req.body ?? {};
+    const course = scopeOf(b.course);
+    if (!course) return res.status(404).json({ error: "Unknown class" });
+    const noteIds = Array.isArray(b.noteIds) ? b.noteIds.map(String) : undefined;
+    const r = startPractice(sdb(), { course, noteIds, length: Number(b.length) || 5 });
+    res.json({ runId: r.runId, problems: r.problems });
+  }));
+
+  app.post("/api/study/problems/answer", studyRoute((req, res) => {
+    const b = req.body ?? {};
+    res.json(answerProblem(sdb(), { runId: String(b.runId ?? ""), problemId: String(b.problemId ?? ""), submitted: b.submitted, hinted: !!b.hinted, gaveUp: !!b.gaveUp, msTaken: Number(b.msTaken) }));
+  }));
+
+  app.post("/api/study/problems/finish", studyRoute((req, res) => {
+    res.json({ ...finishPractice(sdb(), String(req.body?.runId ?? "")), streak: streakNow() });
+  }));
+
+  app.delete("/api/study/problems/:id", studyRoute((req, res) => {
+    res.json({ ok: deleteProblem(sdb(), String(req.params.id)) });
   }));
 
   /** A second explanation of one question, written from the lecture note. Costs one Claude call; the answer key itself was already checked. */

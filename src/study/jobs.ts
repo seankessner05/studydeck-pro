@@ -8,6 +8,8 @@ import { addGeneratedCards, existingFronts, logGeneration } from "./cards.js";
 import { REJECT_LABEL, generateCardsForNote, jaccard, noteVersion, type Density } from "./cardgen.js";
 import { DoubleCheckError, Q_REJECT_LABEL, generateQuestionsForNote } from "./quizgen.js";
 import { addGeneratedQuestions, existingStems, logQuestionGeneration } from "./questions.js";
+import { ProblemCheckError, P_REJECT_LABEL, generateProblemsForNote } from "./problemgen.js";
+import { addGeneratedProblems, existingProblemStems, logProblemGeneration } from "./problems.js";
 import { keepAwake } from "./awake.js";
 import { recordUsage } from "./usage.js";
 
@@ -213,6 +215,34 @@ export class QuestionGenerationJobs extends LectureJobs {
       created,
       duplicates: r.rejected.filter((x) => x.reason === "duplicate").length + late,
       dropped: r.rejected.filter((x) => x.reason !== "duplicate").map((x) => ({ front: x.stem, why: Q_REJECT_LABEL[x.reason] + (x.detail ? ` (${x.detail})` : "") })),
+      calls: r.calls,
+      costUsd: r.costUsd,
+    };
+  }
+}
+
+/** Numerical practice problems: written as small programs, computed by the app, then solved blind by a second Claude call. */
+export class ProblemGenerationJobs extends LectureJobs {
+  protected readonly busyMessage = "A practice-problem generation job is already running.";
+
+  protected async process(note: Note, o: StartOptions, signal: AbortSignal): Promise<Outcome> {
+    let r;
+    try {
+      r = await generateProblemsForNote({ runner: this.runner, note, courses: o.courses, density: o.density, focus: o.focus, existingStems: existingProblemStems(o.db, note.course), signal });
+    } catch (e) {
+      if (e instanceof ProblemCheckError) recordUsage(o.db, "problems", e.calls, e.costUsd);
+      throw e;
+    }
+    recordUsage(o.db, "problems", r.calls, r.costUsd);
+    const fresh = existingProblemStems(o.db, note.course);
+    const keep = r.accepted.filter((c) => !fresh.some((f) => normalize(f) === normalize(c.stem) || jaccard(f, c.stem) >= 0.8));
+    const late = r.accepted.length - keep.length;
+    const created = addGeneratedProblems(o.db, note, noteVersion(note), keep);
+    logProblemGeneration(o.db, note.id, noteVersion(note), created, r.calls);
+    return {
+      created,
+      duplicates: r.rejected.filter((x) => x.reason === "duplicate").length + late,
+      dropped: r.rejected.filter((x) => x.reason !== "duplicate").map((x) => ({ front: x.stem, why: P_REJECT_LABEL[x.reason] + (x.detail ? ` (${x.detail})` : "") })),
       calls: r.calls,
       costUsd: r.costUsd,
     };

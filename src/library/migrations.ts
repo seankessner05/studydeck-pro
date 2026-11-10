@@ -136,4 +136,53 @@ export const MIGRATIONS: Migration[] = [
       );
     `,
   },
+  {
+    version: 5,
+    name: "study: practice problems and attempts",
+    sql: `
+      CREATE TABLE problems (
+        id           TEXT PRIMARY KEY,
+        course       TEXT NOT NULL,
+        note_id      TEXT,
+        section      TEXT,
+        stem         TEXT NOT NULL,
+        givens       TEXT NOT NULL,                 -- JSON [{name, value, label}]
+        steps        TEXT NOT NULL,                 -- JSON [{name, label, expr, explain, value}] with values computed by the app
+        unit         TEXT NOT NULL DEFAULT '',
+        difficulty   INTEGER NOT NULL,              -- 1 easy, 2 medium, 3 hard (by number of steps)
+        answer       REAL NOT NULL,                 -- the last step's computed value
+        quote        TEXT,
+        note_version TEXT,
+        created_at   INTEGER NOT NULL
+      );
+      CREATE INDEX idx_problems_course ON problems (course);
+      CREATE INDEX idx_problems_note   ON problems (note_id);
+
+      CREATE TABLE problem_attempts (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        problem_id  TEXT NOT NULL REFERENCES problems (id) ON DELETE CASCADE,
+        run_id      TEXT NOT NULL,
+        course      TEXT NOT NULL,
+        section     TEXT,
+        submitted   REAL,                           -- null when the student gave up
+        correct     INTEGER NOT NULL,
+        hinted      INTEGER NOT NULL DEFAULT 0,     -- 1 if the hint was opened first: a success with help counts for less
+        attempt     INTEGER NOT NULL,               -- 1 = first try in this run
+        answered_at INTEGER NOT NULL,
+        ms_taken    INTEGER
+      );
+      CREATE INDEX idx_pa_problem ON problem_attempts (problem_id, answered_at);
+      CREATE INDEX idx_pa_time    ON problem_attempts (answered_at);
+      CREATE INDEX idx_pa_run     ON problem_attempts (run_id);
+
+      CREATE TABLE problem_gen_log (
+        note_id      TEXT NOT NULL,
+        note_version TEXT NOT NULL,
+        at           INTEGER NOT NULL,
+        created      INTEGER NOT NULL,
+        calls        INTEGER NOT NULL,
+        PRIMARY KEY (note_id, note_version)
+      );
+    `,
+  },
 ];
