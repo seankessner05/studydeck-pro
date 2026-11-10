@@ -167,9 +167,14 @@ export function buildProblemPrompts(note: Note, opts: ProblemPromptOptions): { s
 
 /** Is this number written in the text? Thousands commas, $ signs and percent forms are all fine. */
 export function numberInText(value: number, text: string): boolean {
+  // 0 and ±1 are often implicit ("P = 8 + Q" has slope 1), so a text without them isn't missing a given.
+  if (value === 0 || Math.abs(value) === 1) return true;
   const flat = text.replace(/(\d),(?=\d{3}\b)/g, "$1");
   const found = (flat.match(/\d+(?:\.\d+)?|\.\d+/g) ?? []).map(Number);
-  const candidates = [value, Number((value * 100).toFixed(6))];
+  // A negative given ("E = -4") is written as its magnitude with a minus sign somewhere in the text.
+  const magnitude = Math.abs(value);
+  if (value < 0 && !/[-−–]|\bnegative\b|\bminus\b/i.test(text)) return false;
+  const candidates = [magnitude, Number((magnitude * 100).toFixed(6))];
   return found.some((f) => candidates.some((c) => Math.abs(f - c) < 1e-9 * Math.max(1, Math.abs(c))));
 }
 

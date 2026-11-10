@@ -98,3 +98,19 @@ html { -webkit-font-smoothing: antialiased; }
 @media (prefers-reduced-motion: reduce) {
   .fade-in, .slide-in, .pop, .hl, .flip, .confetti span { animation: none; }
 }
+
+/* Cheat sheets: two dense columns on screen and on paper; print only the sheet */
+.sheet-cols { column-count: 1; column-gap: 1.5rem; }
+@media (min-width: 768px) { .sheet-cols { column-count: 2; } }
+.sheet-group { break-inside: avoid; }
+@media print {
+  body * { visibility: hidden !important; }
+  #sheetPrintArea, #sheetPrintArea * { visibility: visible !important; }
+  #sheetPrintArea { position: absolute; left: 0; top: 0; width: 100%; box-shadow: none !important; background: #fff !important; color: #000 !important; padding: 0.4in !important; }
+  #sheetPrintArea * { color: #000 !important; }
+  #sheetPrintArea .sheet-cols { column-count: 2; }
+  #sheetPrintArea.print-dense li { font-size: 9pt; line-height: 1.25; }
+  #sheetPrintArea h2 { font-size: 14pt; }
+  #sheetPrintArea h3 { font-size: 9pt; }
+  @page { margin: 0.3in; }
+}

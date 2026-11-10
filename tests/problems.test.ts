@@ -75,6 +75,14 @@ describe("the calculator", () => {
     expect(numberInText(0.8, "MPC = 0.8")).toBe(true);
     expect(numberInText(0.8, "MPC = 0.85")).toBe(false);
     expect(numberInText(50, "spending rises by 500")).toBe(false);
+    // negatives: the magnitude with a minus sign in the text; 0 and 1 are often implicit coefficients
+    expect(numberInText(-4, "price elasticity E = -4 at a price of 10")).toBe(true);
+    expect(numberInText(-4, "an elasticity of −4")).toBe(true);
+    expect(numberInText(-4, "an elasticity of 4")).toBe(false);
+    expect(numberInText(-4, "demand is negative 4 at the margin")).toBe(true);
+    expect(numberInText(1, "the supply curve is P = 8 + Q")).toBe(true);
+    expect(numberInText(-1, "slope of the curve")).toBe(true);
+    expect(numberInText(0, "no fixed cost")).toBe(true);
   });
 });
 

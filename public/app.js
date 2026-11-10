@@ -6,6 +6,7 @@ const state = {
   aiPaused: false, usage: null,
   study: { sub: "cards", gen: { open: false, plan: null, selected: new Set(), density: "normal", focus: "", job: null, polling: false, error: "" },
     qgen: { open: false, plan: null, selected: new Set(), density: "normal", focus: "", job: null, polling: false, error: "" },
+    pgen: { open: false, plan: null, selected: new Set(), density: "normal", focus: "", job: null, polling: false, error: "" },
     quiz: { mode: "home", home: null, length: 10, error: "", runId: "", queue: [], idx: 0, picked: [], result: null, explain: null, asked: 0, correct: 0, t0: 0, qT0: 0, busy: false, summary: null },
     mode: "home", today: null, cards: [], badge: 0, queue: [], idx: 0, revealed: false, reviewed: 0, correct: 0, t0: 0, cardT0: 0, busy: false },
 };
@@ -56,7 +57,7 @@ const ago = (iso) => {
   const m = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
   return m < 1 ? "just now" : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} d ago`;
 };
-const plural = (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`;
+const plural = (n, w, many) => `${n} ${n === 1 ? w : many || w + "s"}`;
 
 // Must match src/citations.ts (runs on escaped HTML, so quotes may appear as &quot;)
 const CITE_RE = /\[([A-Za-z0-9]+) (\d{4}-\d{2}-\d{2}): ([^\]|]+?)(?:\s*\|\s*(?:&quot;|["“])([^\]]*?)(?:&quot;|["”]))?\s*\]/g;
@@ -272,7 +273,7 @@ function setView(v) {
   if (v === "notes") { renderNotes(); $("notesSearch").focus(); }
   else if (v === "study") {
     const st = state.study;
-    const playing = st.mode === "play" || (st.sub === "quiz" && st.quiz.mode === "play");
+    const playing = st.mode === "play" || (st.sub === "quiz" && st.quiz.mode === "play") || (typeof studyMoreBusy === "function" && studyMoreBusy());
     if (!playing) { st.mode = "home"; st.quiz.mode = "home"; }
     renderStudy();
     if (!playing) loadStudyToday();
@@ -571,12 +572,15 @@ async function loadStudyToday() {
   S.badge = k.due + k.learning + k.newAvailable;
   $("studyBadge").textContent = S.badge;
   $("studyBadge").classList.toggle("hidden", !S.badge);
-  if (S.sub === "quiz") await loadQuizHome();
+  if (["problems", "tutor", "exam", "progress"].includes(S.sub)) await loadStudyMore();
+  else if (S.sub === "quiz") await loadQuizHome();
   else if (state.view === "study" && S.mode === "home") renderStudyHome();
   resumeGeneration();
 }
 
 function renderStudy() {
+  if (typeof MT !== "undefined" && MT.on && S.sub === "cards") return renderMatch();
+  if (["problems", "tutor", "exam", "progress"].includes(S.sub)) return renderStudyMore();
   if (S.sub === "quiz") {
     if (Q.mode === "play") renderQuizPlay();
     else if (Q.mode === "done") renderQuizDone();
@@ -635,6 +639,11 @@ function renderStudyHome() {
         ${acc.reviews ? `<div class="text-4xl font-extrabold tabular-nums">${acc.pct}%</div><div class="mt-1 text-xs font-semibold text-slate-400">remembered, across ${plural(acc.reviews, "review")}</div>
         <div class="mt-3 h-2 overflow-hidden rounded-full bg-slate-100 dark:bg-ink-700"><div class="h-full rounded-full bg-emerald-500" style="width:${acc.pct}%"></div></div>` : '<div class="text-sm font-semibold text-slate-400">No reviews yet. Your first session starts the chart. ✨</div>'}</div>
     </div>
+    <div class="flex flex-wrap gap-2">
+      <button data-match-start class="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold shadow-card hover:bg-slate-50 dark:border-ink-600 dark:bg-ink-800 dark:hover:bg-ink-700">🎮 Match game</button>
+      <a href="/api/study/export/anki?course=${encodeURIComponent(state.course)}" download class="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold shadow-card hover:bg-slate-50 dark:border-ink-600 dark:bg-ink-800 dark:hover:bg-ink-700" title="A text file you can import into Anki (File → Import)">⬇ Anki file</a>
+      <button data-backup-now class="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold shadow-card hover:bg-slate-50 dark:border-ink-600 dark:bg-ink-800 dark:hover:bg-ink-700" title="A safety copy of your cards, history, quizzes and exams">💾 Back up my data</button>
+      <span id="studyToolMsg" class="self-center text-xs font-semibold text-slate-400"></span></div>
     <div id="genPanel">${genPanelHtml("cards")}</div>
 
     <div class="rounded-2xl bg-white p-5 shadow-card ring-1 ring-slate-200/70 dark:bg-ink-800 dark:ring-ink-600">
@@ -770,18 +779,24 @@ const Q = S.quiz;
 const GEN_CFG = {
   cards: {
     st: () => S.gen, base: "/api/study/generate", one: "card", many: "cards", icon: "✨",
-    title: "Make cards", pitch: "Each card comes with a quote from your note as its receipt. Cards that can't prove themselves are dropped.",
+    lead: "Make cards from your lectures", title: "Make cards", pitch: "Each card comes with a quote from your note as its receipt. Cards that can't prove themselves are dropped.",
     per: "Cards per lecture", callsPer: 1, working: "writing…", have: (n) => n + (n === 1 ? " card" : " cards"),
     headBusy: "Writing cards…", doneBtn: "Study them now →",
   },
   quiz: {
     st: () => S.qgen, base: "/api/study/quiz/generate", one: "question", many: "questions", icon: "📝",
-    title: "Make questions", pitch: "Each question is written from your note, checked against it, then solved blind by a second Claude call that never sees the answer key. Any that don't hold up are dropped.",
+    lead: "Make quiz questions from your lectures", title: "Make questions", pitch: "Each question is written from your note, checked against it, then solved blind by a second Claude call that never sees the answer key. Any that don't hold up are dropped.",
     per: "Questions per lecture", callsPer: 2, working: "writing and checking…", have: (n) => n + (n === 1 ? " question" : " questions"),
     headBusy: "Writing and checking questions…", doneBtn: "Quiz me now →",
   },
+  problems: {
+    st: () => S.pgen, base: "/api/study/problems/generate", one: "problem", many: "problems", icon: "🧮",
+    lead: "Make practice problems from your lectures", title: "Make problems", pitch: "Each problem is written as a small program, the app computes every step itself, and a second Claude call solves it blind. Lectures with no calculations make none.",
+    per: "Problems per lecture", callsPer: 2, working: "writing and solving…", have: (n) => n + (n === 1 ? " problem" : " problems"),
+    headBusy: "Writing and solving problems…", doneBtn: "Practice now →",
+  },
 };
-const gk = () => (S.sub === "quiz" ? "quiz" : "cards");
+const gk = () => (S.sub === "quiz" ? "quiz" : S.sub === "problems" ? "problems" : "cards");
 
 async function loadGenPlan(kind = gk()) {
   const res = await fetch(`${GEN_CFG[kind].base}/plan?course=${encodeURIComponent(state.course)}`);
@@ -803,7 +818,7 @@ function genPanelHtml(kind = gk()) {
   if (!G.open || !G.plan) {
     return `<div class="flex flex-wrap items-center gap-x-4 gap-y-3 rounded-2xl bg-gradient-to-r from-brand-50 to-fuchsia-50 p-5 ring-1 ring-brand-200/70 dark:from-brand-500/10 dark:to-fuchsia-500/10 dark:ring-brand-500/30">
       <div class="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-white text-2xl shadow-card dark:bg-ink-800">${C.icon}</div>
-      <div class="min-w-[12rem] flex-1"><div class="font-extrabold">${kind === "quiz" ? "Make quiz questions from your lectures" : "Make cards from your lectures"}</div>
+      <div class="min-w-[12rem] flex-1"><div class="font-extrabold">${C.lead}</div>
         <div class="text-xs font-semibold text-slate-500 dark:text-slate-400">${C.pitch}</div></div>
       <button data-gen-open class="w-full shrink-0 rounded-xl bg-brand-500 px-4 py-2 text-sm font-extrabold text-white hover:bg-brand-600 sm:w-auto">Choose lectures</button></div>`;
   }
@@ -914,7 +929,7 @@ async function pollGeneration(kind) {
 
 /** After a reload or a tab switch: pick up a job that is still running on the server. */
 async function resumeGeneration() {
-  for (const kind of ["cards", "quiz"]) {
+  for (const kind of ["cards", "quiz", "problems"]) {
     const C = GEN_CFG[kind];
     if (C.st().polling) continue;
     try {
@@ -939,8 +954,8 @@ const KIND_SHORT = { single: "Pick 1", multi: "Select all", tf: "T / F" };
 const LETTER = "ABCDE";
 
 function subSwitch() {
-  const tab = (id, label) => `<button data-sub="${id}" class="flex-1 rounded-xl px-4 py-2 text-sm font-extrabold transition ${S.sub === id ? "bg-white text-brand-700 shadow-card dark:bg-ink-600 dark:text-brand-200" : "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"}">${label}</button>`;
-  return `<div class="flex gap-1 rounded-2xl bg-slate-100 p-1 dark:bg-ink-800">${tab("cards", "🃏 Flashcards")}${tab("quiz", "📝 Quizzes")}</div>`;
+  const tabs = [["cards", "🃏", "Cards"], ["quiz", "📝", "Quiz"], ["problems", "🧮", "Problems"], ["tutor", "🗣️", "Tutor"], ["exam", "🎯", "Exam"], ["progress", "📊", "Progress"]];
+  return `<div class="flex gap-1 overflow-x-auto rounded-2xl bg-slate-100 p-1 [scrollbar-width:none] dark:bg-ink-800">${tabs.map(([id, ic, label]) => `<button data-sub="${id}" class="shrink-0 grow rounded-xl px-3 py-2 text-sm font-extrabold whitespace-nowrap transition ${S.sub === id ? "bg-white text-brand-700 shadow-card dark:bg-ink-600 dark:text-brand-200" : "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"}">${ic} ${label}</button>`).join("")}</div>`;
 }
 
 function setSub(sub) {
@@ -987,8 +1002,8 @@ function renderQuizHome() {
   </div>`;
 }
 
-async function startQuiz() {
-  const res = await fetch("/api/study/quiz/start", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ course: state.course, length: Q.length }) });
+async function startQuiz(noteIds) {
+  const res = await fetch("/api/study/quiz/start", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ course: state.course, length: Q.length, noteIds: Array.isArray(noteIds) ? noteIds : undefined }) });
   const d = await res.json().catch(() => ({}));
   if (!res.ok) { Q.error = d.error || "Couldn't start a quiz."; return renderQuizHome(); }
   Q.error = "";
@@ -1294,7 +1309,7 @@ $("studyBody").addEventListener("click", (e) => {
   if (e.target.closest("#genGo")) return startGeneration(kind);
   if (e.target.closest("#genCancel")) return cancelGeneration(kind);
   if (e.target.closest("#genDismiss")) return dismissGeneration(kind);
-  if (e.target.closest("#genStudy")) { dismissGeneration(kind); return kind === "quiz" ? startQuiz() : startStudySession(); }
+  if (e.target.closest("#genStudy")) { dismissGeneration(kind); return kind === "quiz" ? startQuiz() : kind === "problems" ? startPractice() : startStudySession(); }
   if (e.target.closest("#startStudy")) return startStudySession();
   if (e.target.closest("#exitStudy")) return exitStudySession();
   if (e.target.closest("#revealBtn")) return revealCard();

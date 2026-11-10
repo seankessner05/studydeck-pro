@@ -41,6 +41,12 @@ StudyDeck fixes both. It copies my Granola notes straight into class folders (us
 - 🧠 **Study tab.** FSRS spaced-repetition flashcards (the same family of scheduler Anki uses) with a daily limit, a flip-and-rate player with the next interval shown on each button, keyboard shortcuts, a 7-day forecast, accuracy, and a streak that counts studying. Cards can be made by hand or generated from your lectures (see below).
 - ✨ **Cards from your lectures, with receipts.** Pick lectures (or a whole class), choose how many cards per lecture, see the Claude-call estimate, and generate. Every card carries a quote copied word for word from your note. Before a card is saved, my code checks that the quote really is in the note, that any numbers on the card come from the note, that it asks one thing (not two), and that it isn't a duplicate. Cards that fail are dropped, and you can see exactly which and why. A lecture is only processed again if you edit it in Granola, and existing cards and their review history are never touched.
 - 📝 **Quizzes with a blind double-check.** The Quizzes tab holds a bank of multiple-choice (pick one or select all), and true/false questions written from your lectures. After Claude writes them, my code checks each one the same way as cards (the quote is really in the note, numbers come from the note, one idea per question, sensible options and answer key), shuffles the options so the key isn't where Claude likes to put it, and then a **second Claude call answers every question without seeing the key**. Only questions where the second solve agrees with the key are saved; if that check can't run, nothing is saved. A quiz serves questions you've never seen first, then the ones you last missed. Answers are recorded per question, a miss comes back at the end of the same quiz, and after each answer you see the explanation, the quote from your note, and an optional "explain it another way" written from your note. Scoring counts first tries only.
+- 🧮 **Practice problems the app checks itself.** Claude writes each numerical problem as a small program (the given numbers and the arithmetic steps). The app computes every step with a restricted calculator, so no answer is ever Claude's say-so, and a second Claude call must solve the problem blind and land on the same number. Each given must be written in the problem text, the problem can't reuse the numbers of a worked example in your note, and it asks for exactly one number. You can open a hint (it counts as help in your progress), type your answer (within 1% counts), and then see the worked steps with app-computed values and the formula quote from your note.
+- 📊 **Progress, weak spots and a daily plan.** Mastery per lecture and section comes from what you actually answered: card ratings, quiz and problem first tries, mock exams and teach-backs. Recent answers count more, a success after a hint counts half, and with too little practice it says "not practiced yet" instead of inventing a number. Give it an exam date and the lectures it covers and it estimates readiness (with its confidence), lists weak spots, and plans today within the minutes you have: make material if there is none, due cards, your weakest topics, untried lectures, a teach-back, and a mock exam when one is near.
+- 🎯 **Timed mock exams.** Questions come from your banks, spread across the lectures the exam covers, plus written questions Claude writes with a rubric whose every point is backed by a quote from your notes. The exam page never receives answer keys or rubrics. Multiple choice and numbers are graded by the app. Written answers are graded point by point by Claude, which must say what each point needs, decide, and then quote the words in **your answer** that earn it; a point only counts if that quote really is in your answer, so a grader that is flattered or tricked earns you nothing (tested with an answer that begged for full marks: 0). You get one second look per written answer.
+- 📄 **Cheat sheets and study guides from your verified cards.** The one-page sheet is chosen by Claude but written by you: it only picks card ids and headings, so every line is a card that already passed the checks. The study guide uses no AI at all. Sheets are versioned, print to PDF in two dense columns, and export to Markdown.
+- 🗣️ **Teach-back tutor.** You explain a topic first, notes closed. Claude finds the key ideas in your note and checks which ones you got across, asks one question per round without stating what you missed, and ends with a score, the gaps (each with a quote from your note) and a next step. A covered idea only counts if its evidence is in your own words.
+- 🎮 **Match game, Anki export, backups.** A quick match game from your cards. Cards and quiz questions export as an Anki import file (the receipt quote is in the back, tagged by class and section). Your study data is backed up automatically once a day, and on demand, keeping the newest ten.
 - ⏸ **AI usage meter and Pause AI.** The sidebar shows how many times Claude has been asked today. One switch turns every AI feature off; reviewing cards never uses AI.
 - 🩺 **Doctor.** One screen (or `npm run doctor`) checks your setup and says how to fix anything.
 - 🔒 **Local and private.** Notes are markdown files on your machine. No database server, no API keys, no cloud storage.
@@ -90,7 +96,8 @@ NotebookLM is a great product, and it also cites its sources. StudyDeck is narro
 | "Not in your notes" as an explicit answer | **Yes, a labeled badge, by default** | Usually says the sources don't cover it |
 | Outside knowledge | **Off by default**; opt-in and labeled sentence by sentence | Mostly limited to sources |
 | Where your notes live | **Plain files on your laptop** | Google's cloud |
-| Flashcards and quizzes | **Yes**, each with a quote from your note and (for quizzes) a blind second solve; study guides and exams are on the roadmap | **Yes** |
+| Flashcards, quizzes, practice problems, mock exams, cheat sheets | **Yes**, each tied to a quote from your note, with a blind second solve for quizzes and problems, code-computed answers, and evidence-checked grading | **Yes** (flashcards, quizzes, study guides) |
+| Spaced repetition, weak-spot tracking, exam countdown plan | **Yes** | No |
 | Audio overviews, PDFs, YouTube, slides as sources | No | **Yes** |
 | Setup | Node + Claude Code CLI | **None, just a browser** |
 
@@ -118,7 +125,7 @@ Until you connect, StudyDeck uses the 21 sample notes in `./sample-notes`. Flip 
 
 Prefer the terminal? `npm run sync` does the same sync (and falls back to a slower Claude-based sync of the last 14 days if Granola isn't connected yet).
 
-**Scripts:** `npm start` (build CSS + run), `npm run dev` (auto-reload), `npm run sync`, `npm run doctor` (checks your setup and says how to fix anything), `npm run eval` (19 regression questions against the sample notes), `npm run eval:cards` (generates cards for six sample lectures and reports how many pass the checks), `npm run eval:quiz` (does the same for quiz questions and also reports how often the right answer is the longest option), `npm test`, `npm run typecheck`. Set `PORT` to change the port.
+**Scripts:** `npm start` (build CSS + run), `npm run dev` (auto-reload), `npm run sync`, `npm run doctor` (checks your setup and says how to fix anything), `npm run eval` (19 regression questions against the sample notes), `npm run eval:cards` (generates cards for six sample lectures and reports how many pass the checks), `npm run eval:quiz` (does the same for quiz questions and also reports how often the right answer is the longest option), `npm run eval:problems` (writes, computes and double-checks problems for six sample lectures), `npm test`, `npm run typecheck`. Set `PORT` to change the port.
 
 ### Note format
 
@@ -145,13 +152,11 @@ Notes that aren't in a mapped Granola folder land in the Inbox (`./notes/unsorte
 
 ## Roadmap
 
-The goal: a Quizlet-meets-NotebookLM study partner that knows your whole semester. Flashcards with spaced repetition, generated cards and quizzes are in; the rest is in progress.
+The goal: a Quizlet-meets-NotebookLM study partner that knows your whole semester. The whole study mode is in (flashcards with spaced repetition, generated cards, quizzes, practice problems, mock exams, cheat sheets, a tutor, progress and a daily plan). What's left is about your sources.
 
-- 🧩 **Practice problems and exams** built on the same checked-receipt idea. Calculation problems will have their arithmetic verified by code, not by Claude's say-so.
 - 📖 **Source library.** Add or remove anything at any time: textbook chapters (PDF or pasted), syllabi, past exams, slides, YouTube transcripts, web pages. Everything becomes searchable and cited with page numbers or timestamps.
 - 🧭 **Where am I.** Combine the syllabus, your Canvas calendar and your lecture notes into a per-class "this week, covered so far, due next" view, plus a gap check for topics you may have missed.
-- 🃏 **Study mode, next steps.** Original practice problems in your professor's style, each solved and re-checked independently before you see it, then a tutor mode that makes you explain an idea first. (Flashcards, generated cards and quizzes already work.)
-- 🎯 **Weak-spot tracking** and an **exam mode**: a one-page cheat sheet and a mock exam scoped to what's been covered.
+- 🧩 **Study mode extras.** A real `.apkg` Anki deck (today it's a text import file), problems that need calculus-style derivations (they're limited to plain arithmetic for now), and exam-style written questions graded against your professor's own rubric if you upload one.
 - 🧠 **Semantic search** (local) for very large semesters.
 
 ## Limitations (honestly)
@@ -165,6 +170,10 @@ The goal: a Quizlet-meets-NotebookLM study partner that knows your whole semeste
 - **Generation uses your Claude allowance** (about one call per lecture). The Study tab shows the estimate first, and Pause AI turns it off. The app keeps your Mac awake while a job runs, because a sleeping Mac freezes the calls.
 - **The checks catch fabricated quotes and numbers, not every weak card or question.** One can pass and still be a poor question; review what it makes.
 - **Quiz questions are double-checked by the same kind of model.** In a test, the blind second solve caught all 31 answer keys I deliberately corrupted, but a shared blind spot could still slip through. True/false questions can be guessed half the time, so they are capped at a quarter of a lecture's questions. The right option is still the longest one in about half of single-answer questions (chance is a quarter), though never by a wide margin. Questions that need a calculation are mostly dropped, because the explanation contains intermediate numbers that aren't in the note; those wait for practice problems, where code checks the arithmetic.
+- **Problems are limited to arithmetic.** The calculator allows numbers, + − × ÷ ^, parentheses and a few functions (sqrt, log, exp, min, max, round…). A problem that needs you to differentiate or solve an equation is expressed through the already-derived formula, and lectures without calculations make none. A second Claude call still has to solve each one blind.
+- **Written grading is Claude's judgement, with a leash.** Each point needs a quote from your own answer, which stops invented credit and flattery, but it can still be too strict about wording or miss a correct idea phrased oddly. That's what the one "second look" per answer is for. Treat it as practice feedback, not a prediction of your professor's grade.
+- **Readiness is an estimate.** It is built from what you've answered and says how confident it is. With few answers across few lectures it is a rough guess, and a mock exam under time pressure is a better signal than any number here.
+- **Mock exams only use what's in your banks.** If a lecture has no questions or problems it can't appear on the exam; the plan tells you to make material first.
 - **Short memory.** Follow-up questions see only the last 6 messages of that class's chat.
 - **Single user, single machine.** Tested on macOS with Chrome; not tested on Windows.
 
@@ -177,6 +186,10 @@ npm run typecheck
 ```
 
 Tests never call the real CLI: the Claude runner is injected, so the API and sync are tested with fakes.
+
+## Acknowledgments
+
+The teach-back tutor and the idea that a success with help should count for less than an independent one are inspired by the teaching skills in [OpenMAIC](https://github.com/THU-MAIC/OpenMAIC) (MIT licensed); the code and prompts here are my own. The exam and grading design also borrows ideas from [PndaMan/cortex](https://github.com/PndaMan/cortex), and the card scheduler is [ts-fsrs](https://github.com/open-spaced-repetition/ts-fsrs).
 
 ## License
 
