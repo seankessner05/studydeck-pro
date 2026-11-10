@@ -201,4 +201,55 @@ export const MIGRATIONS: Migration[] = [
       CREATE INDEX idx_exams_course ON exams (course, date_ms);
     `,
   },
+  {
+    version: 7,
+    name: "study: mock exams, cheat sheets, teach-back sessions",
+    sql: `
+      CREATE TABLE exam_sittings (
+        id              TEXT PRIMARY KEY,
+        exam_id         TEXT,
+        course          TEXT NOT NULL,
+        name            TEXT NOT NULL,
+        preset          TEXT NOT NULL,
+        started_at      INTEGER NOT NULL,
+        deadline_at     INTEGER NOT NULL,
+        duration_min    INTEGER NOT NULL,
+        finished_at     INTEGER,
+        items_json      TEXT NOT NULL,              -- the questions with their keys: never sent to the page until it is submitted
+        answers_json    TEXT,
+        results_json    TEXT,
+        earned          REAL,
+        max             REAL NOT NULL,
+        written_pending INTEGER NOT NULL DEFAULT 0
+      );
+      CREATE INDEX idx_sittings_course ON exam_sittings (course, started_at);
+
+      CREATE TABLE cheatsheets (
+        id         TEXT PRIMARY KEY,
+        course     TEXT NOT NULL,
+        exam_id    TEXT,
+        kind       TEXT NOT NULL,                   -- onepage | guide
+        version    INTEGER NOT NULL,
+        title      TEXT NOT NULL,
+        body_json  TEXT NOT NULL,
+        card_count INTEGER NOT NULL,
+        created_at INTEGER NOT NULL
+      );
+      CREATE INDEX idx_sheets_course ON cheatsheets (course, created_at);
+
+      CREATE TABLE tutor_sessions (
+        id          TEXT PRIMARY KEY,
+        course      TEXT NOT NULL,
+        note_id     TEXT NOT NULL,
+        section     TEXT,
+        topic       TEXT NOT NULL,
+        started_at  INTEGER NOT NULL,
+        finished_at INTEGER,
+        score       REAL,                           -- share of the key ideas the student got across, 0 to 1
+        transcript  TEXT NOT NULL,                  -- JSON [{role, text}]
+        summary     TEXT                            -- JSON {got, gaps, next}
+      );
+      CREATE INDEX idx_tutor_course ON tutor_sessions (course, started_at);
+    `,
+  },
 ];

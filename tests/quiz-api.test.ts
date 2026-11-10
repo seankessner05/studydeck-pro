@@ -123,6 +123,7 @@ describe("taking a quiz over the API", () => {
     expect(h.accuracy).toEqual({ answers: 0, correct: 0, pct: null });
     expect(h.questions).toHaveLength(9);
     expect(h.questions[0]).toMatchObject({ asked: 0, right: 0, kind: "single" });
+    expect(JSON.stringify(h)).not.toMatch(/"answer"|"explanation"|"quote"|"options"/); // the list must not carry the key
     expect((await j("/api/study/quiz/home?course=NOPE")).status).toBe(404);
   });
 

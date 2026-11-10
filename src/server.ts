@@ -18,6 +18,9 @@ import { QuizError, answerQuestion as recordQuizAnswer, deleteQuestion, finishQu
 import { QUIZ_TARGET } from "./study/quizgen.js";
 import { PROBLEM_TARGET } from "./study/problemgen.js";
 import { ExamError, createExam, daysUntil, deleteExam, getExam, inScope, listExams } from "./study/exams.js";
+import { generateWrittenQuestions, gradeWritten } from "./study/written.js";
+import { PRESETS, applyRemark, applyWrittenGrades, createSitting, getSitting, listSittings, pendingWritten, remarkInput, submitSitting, summarize, type Preset } from "./study/sittings.js";
+import { ONEPAGE_LIMIT, buildGuide, cardsForSheet, deleteSheet, generateOnePage, getSheet, listSheets, saveSheet, sheetToMarkdown } from "./study/cheatsheets.js";
 import { buildPlan, insights as buildInsights, lectureProgress, readiness, weakSpots } from "./study/mastery.js";
 import { answerProblem, deleteProblem, finishPractice, listProblems, problemAccuracy, problemCounts, problemCoverage, startPractice } from "./study/problems.js";
 import { DENSITIES, DENSITY_TARGET, noteVersion, type Density } from "./study/cardgen.js";
@@ -387,7 +390,8 @@ export function createApp(deps: AppDeps) {
     const course = scopeOf(req.query.course);
     if (!course) return res.status(404).json({ error: "Unknown class" });
     const db = sdb();
-    res.json({ counts: quizCounts(db, course), accuracy: quizAccuracy(db, course), streak: streakNow(), questions: listQuestions(db, course, 300) });
+    // Only what the list shows: the answer key, options and explanation stay on the server until a question is answered.
+    res.json({ counts: quizCounts(db, course), accuracy: quizAccuracy(db, course), streak: streakNow(), questions: listQuestions(db, course, 300).map((q) => ({ id: q.id, course: q.course, noteId: q.noteId, section: q.section, kind: q.kind, stem: q.stem, asked: q.asked, right: q.right })) });
   }));
 
   app.post("/api/study/quiz/start", studyRoute((req, res) => {
@@ -466,6 +470,162 @@ export function createApp(deps: AppDeps) {
     const minutes = Math.max(10, Math.min(240, Number(req.query.minutes) || 45));
     const plan = buildPlan({ db, exams, notes: noteRefs("all"), minutes, dueCards: dueIn });
     res.json({ ...plan, plans: plan.plans.map((p) => ({ ...p, exam: { ...p.exam, daysLeft: p.daysLeft } })) });
+  }));
+
+  // ---- study: mock exams ----
+  const titleOfNote = (course: string) => {
+    const refs = new Map(noteRefs(course).map((n) => [n.id, n.title]));
+    return (id: string) => refs.get(id);
+  };
+  const sittingView = (id: string) => {
+    const sitting = getSitting(sdb(), id);
+    return { ...sitting, summary: sitting.finishedAt ? summarize(sdb(), id, titleOfNote("all")) : null };
+  };
+
+  app.post("/api/study/exam/start", studyRoute(async (req, res) => {
+    const b = req.body ?? {};
+    const db = sdb();
+    const preset = (["quick", "standard", "full"] as string[]).includes(b.preset) ? (b.preset as Preset) : "standard";
+    let course: string | undefined;
+    let name = "Practice exam";
+    let examId: string | null = null;
+    let noteIds: string[] = [];
+    if (b.examId) {
+      const exam = getExam(db, String(b.examId));
+      if (!exam) return res.status(404).json({ error: "That exam isn't on your list any more." });
+      course = exam.course;
+      name = `${exam.name} mock`;
+      examId = exam.id;
+      noteIds = inScope(exam, noteRefs(course)).map((n) => n.id);
+    } else {
+      course = scopeOf(b.course);
+      if (!course || course === "all") return res.status(400).json({ error: "Pick one class for the exam." });
+      noteIds = Array.isArray(b.noteIds) ? b.noteIds.map(String) : noteRefs(course).map((n) => n.id);
+    }
+    const warnings: string[] = [];
+    let written: Awaited<ReturnType<typeof generateWrittenQuestions>>["accepted"] = [];
+    const wantWritten = b.written === false ? 0 : PRESETS[preset].written;
+    if (wantWritten) {
+      if (paused()) warnings.push("AI is paused, so this exam has no written questions.");
+      else {
+        const cur = current();
+        const scoped = loadNotes(course, cur.dir, activeIdsOf(cur.courses)).filter((n) => noteIds.includes(n.id));
+        if (scoped.length) {
+          try {
+            const r = await generateWrittenQuestions({ runner: deps.runner, notes: scoped, count: wantWritten, courses: cur.courses });
+            recordUsage(db, "exam", r.calls, r.costUsd);
+            written = r.accepted;
+            if (written.length < wantWritten) warnings.push(`Only ${written.length} of ${wantWritten} written questions passed the checks.`);
+          } catch (e) {
+            warnings.push(`The written questions couldn't be made (${friendlyError(e)}). The rest of the exam is ready.`);
+          }
+        }
+      }
+    }
+    const created = createSitting(db, { course, name, examId, noteIds, preset, written });
+    if (created.shortfall.mcq || created.shortfall.problems) warnings.push(`Your bank had fewer than a full ${PRESETS[preset].label.toLowerCase()} exam asks for (${created.items.filter((i) => i.type === "mcq").length} multiple-choice, ${created.items.filter((i) => i.type === "problem").length} problems). Make more questions for these lectures for a fuller exam.`);
+    res.json({ ...created, warnings });
+  }));
+
+  app.get("/api/study/exam/history", studyRoute((req, res) => {
+    const course = scopeOf(req.query.course);
+    if (!course) return res.status(404).json({ error: "Unknown class" });
+    res.json(listSittings(sdb(), course));
+  }));
+
+  app.get("/api/study/exam/:id", studyRoute((req, res) => {
+    res.json(sittingView(String(req.params.id)));
+  }));
+
+  app.post("/api/study/exam/:id/submit", studyRoute((req, res) => {
+    const id = String(req.params.id);
+    submitSitting(sdb(), id, req.body?.answers && typeof req.body.answers === "object" ? req.body.answers : {});
+    res.json(sittingView(id));
+  }));
+
+  /** Written answers are graded by Claude one rubric point at a time; a point only counts if its evidence is in your own answer. */
+  app.post("/api/study/exam/:id/grade-written", studyRoute(async (req, res) => {
+    const id = String(req.params.id);
+    const items = pendingWritten(sdb(), id);
+    if (!items.length) return res.json(sittingView(id));
+    if (paused()) return res.status(409).json({ error: "AI is paused, so your written answers can't be graded yet. Resume it in the sidebar and try again." });
+    const r = await gradeWritten({ runner: deps.runner, items });
+    recordUsage(sdb(), "exam", r.calls, r.costUsd);
+    applyWrittenGrades(sdb(), id, r.grades);
+    res.json(sittingView(id));
+  }));
+
+  app.post("/api/study/exam/:id/remark", studyRoute(async (req, res) => {
+    const id = String(req.params.id);
+    const argument = String(req.body?.argument ?? "").trim().slice(0, 1500);
+    if (argument.length < 5) return res.status(400).json({ error: "Say why you think a point should count." });
+    const input = remarkInput(sdb(), id, String(req.body?.itemId ?? ""));
+    if (paused()) return res.status(409).json({ error: "AI is paused, so this can't be looked at again. Resume it in the sidebar." });
+    const r = await gradeWritten({ runner: deps.runner, items: [input], contest: { n: input.n, argument } });
+    recordUsage(sdb(), "exam", r.calls, r.costUsd);
+    const g = r.grades.get(input.n);
+    if (!g) return res.status(502).json({ error: "Claude didn't return a new grade. Try again." });
+    applyRemark(sdb(), id, String(req.body.itemId), g);
+    res.json(sittingView(id));
+  }));
+
+  // ---- study: cheat sheets and study guides ----
+  const courseLabel = (course: string) => current().courses.find((c) => c.id === course)?.name ?? course;
+  const sheetScope = (b: any): { course: string; examId: string | null; noteIds: string[]; label: string } | { error: string; status: number } => {
+    const db = sdb();
+    if (b.examId) {
+      const exam = getExam(db, String(b.examId));
+      if (!exam) return { error: "That exam isn't on your list any more.", status: 404 };
+      return { course: exam.course, examId: exam.id, noteIds: inScope(exam, noteRefs(exam.course)).map((n) => n.id), label: `${exam.name} · ${courseLabel(exam.course)}` };
+    }
+    const course = scopeOf(b.course);
+    if (!course || course === "all") return { error: "Pick one class.", status: 400 };
+    const ids = Array.isArray(b.noteIds) ? b.noteIds.map(String) : noteRefs(course).map((n) => n.id);
+    return { course, examId: null, noteIds: ids, label: courseLabel(course) };
+  };
+
+  app.get("/api/study/sheets", studyRoute((req, res) => {
+    const course = scopeOf(req.query.course);
+    if (!course) return res.status(404).json({ error: "Unknown class" });
+    res.json(listSheets(sdb(), course, typeof req.query.exam === "string" ? req.query.exam : undefined));
+  }));
+
+  app.post("/api/study/sheets", studyRoute(async (req, res) => {
+    const b = req.body ?? {};
+    const sc = sheetScope(b);
+    if ("error" in sc) return res.status(sc.status).json({ error: sc.error });
+    const kind = b.kind === "guide" ? "guide" : "onepage";
+    const db = sdb();
+    const notes = noteRefs(sc.course).filter((n) => sc.noteIds.includes(n.id));
+    const cards = cardsForSheet(db, notes);
+    let sheet;
+    if (kind === "guide") sheet = buildGuide(cards, `${sc.label} study guide`);
+    else {
+      if (paused()) return res.status(409).json({ error: "AI is paused, so the one-page sheet can't pick its cards. The full study guide still works (it uses no AI), or resume AI in the sidebar." });
+      const r = await generateOnePage({ runner: deps.runner, cards, limit: Math.max(10, Math.min(60, Number(b.limit) || ONEPAGE_LIMIT)), title: `${sc.label} cheat sheet` });
+      recordUsage(db, "cheatsheet", r.calls, r.costUsd);
+      sheet = r.sheet;
+    }
+    const row = saveSheet(db, { course: sc.course, examId: sc.examId, sheet });
+    res.json({ ...row, sheet });
+  }));
+
+  app.get("/api/study/sheets/:id/export.md", studyRoute((req, res) => {
+    const got = getSheet(sdb(), String(req.params.id));
+    if (!got) return res.status(404).json({ error: "That sheet is gone." });
+    res.setHeader("content-type", "text/markdown; charset=utf-8");
+    res.setHeader("content-disposition", `attachment; filename="${got.title.replace(/[^\w.-]+/g, "-").slice(0, 60)}-v${got.version}.md"`);
+    res.send(sheetToMarkdown(got.sheet, got.version));
+  }));
+
+  app.get("/api/study/sheets/:id", studyRoute((req, res) => {
+    const got = getSheet(sdb(), String(req.params.id));
+    if (!got) return res.status(404).json({ error: "That sheet is gone." });
+    res.json(got);
+  }));
+
+  app.delete("/api/study/sheets/:id", studyRoute((req, res) => {
+    res.json({ ok: deleteSheet(sdb(), String(req.params.id)) });
   }));
 
   // ---- study: numerical practice problems ----
