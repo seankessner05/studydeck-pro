@@ -20,7 +20,7 @@ import { PROBLEM_TARGET } from "./study/problemgen.js";
 import { ExamError, createExam, daysUntil, deleteExam, getExam, inScope, listExams } from "./study/exams.js";
 import { exportCards, exportQuestions } from "./study/anki.js";
 import { matchPairs } from "./study/match.js";
-import { backupIfDue, backupNow, listBackups } from "./study/backup.js";
+import { RestoreError, backupIfDue, backupNow, checkBackup, currentCounts, listBackups, restoreBackup } from "./study/backup.js";
 import { getTutorSession, listTutorSessions, startTutor, topicsOf, tutorTurn } from "./study/tutor.js";
 import { generateWrittenQuestions, gradeWritten } from "./study/written.js";
 import { PRESETS, applyRemark, applyWrittenGrades, createSitting, getSitting, listSittings, pendingWritten, remarkInput, submitSitting, summarize, type Preset } from "./study/sittings.js";
@@ -276,7 +276,7 @@ export function createApp(rawDeps: AppDeps) {
     try {
       await fn(req, res);
     } catch (e) {
-      if (e instanceof CardError || e instanceof QuizError || e instanceof ExamError || e instanceof TrashError) return void res.status(400).json({ error: e.message });
+      if (e instanceof CardError || e instanceof QuizError || e instanceof ExamError || e instanceof TrashError || e instanceof RestoreError) return void res.status(400).json({ error: e.message });
       // Claude said no (usage limit, not signed in, too slow): say so in plain words instead of a bare server error.
       if (e instanceof ClaudeError) return void res.status(e.kind === "limit" ? 429 : 503).json({ error: e.message, kind: e.kind });
       res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
@@ -692,6 +692,18 @@ export function createApp(rawDeps: AppDeps) {
   app.post("/api/study/backup", studyRoute((_req, res) => {
     if (current().source === "samples") return res.status(400).json({ error: "You're in demo mode. Backups are for your own study data, not the sample notes." });
     res.json(backupNow(sdb(), deps.dataDir));
+  }));
+
+  /** What a backup holds next to what you have now, for the confirm step. Changes nothing. */
+  app.get("/api/study/backups/:file", studyRoute((req, res) => {
+    res.json({ backup: checkBackup(deps.dataDir, String(req.params.file)), now: currentCounts(studyDb(deps.dataDir, false)) });
+  }));
+
+  app.post("/api/study/backups/:file/restore", studyRoute((req, res) => {
+    if (current().source === "samples") return res.status(400).json({ error: "You're in demo mode. Turn it off to restore your own study data." });
+    if (req.body?.confirm !== true) return res.status(400).json({ error: "Restoring replaces your current study data, so it needs a clear yes." });
+    if (anyGenerationRunning()) return res.status(409).json({ error: "Something is being generated right now. Wait for it to finish (or cancel it), then restore." });
+    res.json({ ok: true, ...restoreBackup(deps.dataDir, String(req.params.file)) });
   }));
 
   // ---- study: teach-back tutor ----

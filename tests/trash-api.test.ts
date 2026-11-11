@@ -61,3 +61,36 @@ describe("deleting with undo, through the API", () => {
     expect((await j(`/api/study/trash/${del.trash.id}/restore`, "POST")).status).toBe(400);
   });
 });
+
+describe("restoring a backup, through the API", () => {
+  it("shows what a backup holds, needs a clear yes, and then swaps the data", async () => {
+    await j("/api/study/cards", "POST", { course: "ECON301", front: "In the backup", back: "x" });
+    const made = await (await j("/api/study/backup", "POST")).json();
+    const extra = await (await j("/api/study/cards", "POST", { course: "ECON301", front: "After the backup", back: "y" })).json();
+    expect(extra.front).toBe("After the backup");
+    const fronts = async () => (await (await j("/api/study/cards?course=ECON301")).json()).map((c: any) => c.front);
+    expect(await fronts()).toContain("After the backup");
+
+    const look = await (await j(`/api/study/backups/${made.file}`)).json();
+    expect(look.now.cards).toBe(look.backup.counts.cards + 1);
+
+    expect((await j(`/api/study/backups/${made.file}/restore`, "POST", {})).status).toBe(400);
+    expect(await fronts()).toContain("After the backup");
+
+    const r = await j(`/api/study/backups/${made.file}/restore`, "POST", { confirm: true });
+    expect(r.status).toBe(200);
+    const body = await r.json();
+    expect(body.safetyCopy.file).toMatch(/^studydeck-\d{8}-\d{6}/);
+    expect(await fronts()).not.toContain("After the backup");
+    expect(await fronts()).toContain("In the backup");
+    // the app keeps working on the restored data
+    expect((await j("/api/study/cards", "POST", { course: "ECON301", front: "Made after restoring", back: "z" })).status).toBe(200);
+  });
+
+  it("refuses names that aren't backups", async () => {
+    for (const name of ["..%2F..%2Fsettings.json", "studydeck.db", "nope.db"]) {
+      expect((await j(`/api/study/backups/${name}`)).status, name).toBe(400);
+      expect((await j(`/api/study/backups/${name}/restore`, "POST", { confirm: true })).status, name).toBe(400);
+    }
+  });
+});

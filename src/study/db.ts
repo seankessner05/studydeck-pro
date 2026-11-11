@@ -17,6 +17,13 @@ export function studyDb(dataDir: string, sample = false): Db {
   return db;
 }
 
+/** Close one study database (so its file can be replaced). The next studyDb() call opens it again. */
+export function closeStudyDb(dataDir: string, sample = false) {
+  const file = path.join(dataDir, sample ? "studydeck-demo.db" : "studydeck.db");
+  open.get(file)?.close();
+  open.delete(file);
+}
+
 export function closeStudyDbs() {
   for (const db of open.values()) db.close();
   open.clear();

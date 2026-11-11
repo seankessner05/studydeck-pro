@@ -67,10 +67,10 @@ function trashRowsHtml() {
 }
 
 function renderTrash() {
-  const panel = document.getElementById("trashPanel");
+  const panel = dialogOf("trash");
   if (!panel) return;
-  panel.querySelector("[data-trash-list]").innerHTML = trashRowsHtml();
-  panel.querySelector("[data-trash-note]").textContent = TR.items.length ? `${plural(TR.items.length, "item")}. Each is kept for ${TR.keptDays} days, then removed for good.` : `Deleted cards, questions and problems wait here for ${TR.keptDays} days.`;
+  panel.querySelector("[data-dialog-body]").innerHTML = `<div class="divide-y divide-slate-100 dark:divide-ink-700">${trashRowsHtml()}</div>`;
+  panel.querySelector("[data-dialog-note]").textContent = TR.items.length ? `${plural(TR.items.length, "item")}. Each is kept for ${TR.keptDays} days, then removed for good.` : `Deleted cards, questions and problems wait here for ${TR.keptDays} days.`;
 }
 
 async function loadTrash() {
@@ -79,37 +79,15 @@ async function loadTrash() {
   renderTrash();
 }
 
-function closeTrash() {
-  const panel = document.getElementById("trashPanel");
-  if (!panel) return;
-  panel.remove();
-  if (TR.returnFocus && document.contains(TR.returnFocus)) TR.returnFocus.focus();
-}
-
 function openTrash(opener) {
-  closeTrash();
-  TR.returnFocus = opener || null;
-  const panel = document.createElement("div");
-  panel.id = "trashPanel";
-  panel.className = "fixed inset-0 z-40 flex items-start justify-center bg-ink-900/50 p-4 pt-[8vh] backdrop-blur-sm";
-  panel.innerHTML = `<div role="dialog" aria-modal="true" aria-labelledby="trashTitle" class="w-full max-w-xl overflow-hidden rounded-3xl bg-white shadow-pop ring-1 ring-slate-200 dark:bg-ink-800 dark:ring-ink-600">
-      <div class="flex items-center justify-between gap-3 border-b border-slate-100 px-5 py-4 dark:border-ink-700">
-        <div><div id="trashTitle" class="text-lg font-extrabold">Trash</div><div data-trash-note class="text-xs font-medium text-slate-500 dark:text-slate-400">Loading…</div></div>
-        <button type="button" data-trash-close class="grid h-10 w-10 place-items-center rounded-xl text-xl text-slate-400 hover:bg-slate-100 dark:hover:bg-ink-700" aria-label="Close the trash">×</button>
-      </div>
-      <div data-trash-list class="max-h-[60vh] divide-y divide-slate-100 overflow-y-auto dark:divide-ink-700"></div>
-    </div>`;
-  document.body.appendChild(panel);
-  panel.querySelector("[data-trash-close]").focus();
+  openDialog("trash", "Trash", opener).note.textContent = "Loading…";
   loadTrash();
 }
 
 document.addEventListener("click", async (e) => {
   const opener = e.target.closest("[data-trash-open]");
   if (opener) return openTrash(opener);
-  const panel = document.getElementById("trashPanel");
-  if (!panel) return;
-  if (e.target === panel || e.target.closest("[data-trash-close]")) return closeTrash();
+  if (!dialogOf("trash")) return;
   const back = e.target.closest("[data-trash-restore]");
   if (back) {
     const entry = TR.items.find((t) => t.id === back.dataset.trashRestore);
@@ -123,17 +101,3 @@ document.addEventListener("click", async (e) => {
     return loadTrash();
   }
 });
-
-document.addEventListener("keydown", (e) => {
-  const panel = document.getElementById("trashPanel");
-  if (!panel) return;
-  if (e.key === "Escape") { e.stopPropagation(); return closeTrash(); }
-  // keep Tab inside the dialog
-  if (e.key === "Tab") {
-    const items = [...panel.querySelectorAll("button")];
-    if (!items.length) return;
-    const first = items[0], last = items[items.length - 1];
-    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
-    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
-  }
-}, true);
