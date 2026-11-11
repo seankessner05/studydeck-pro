@@ -46,7 +46,10 @@ const EMPTY_LINES = [
   "No hallucinations here, just your notes and receipts. 🧾",
 ];
 
-const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+// Escapes both kinds of quote, so the result is safe in text and inside either style of attribute.
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+/** The reverse of esc(), for text that was escaped as part of a larger string and is needed raw again. */
+const unesc = (s) => String(s).replace(/&(amp|lt|gt|quot|#39);/g, (_, e) => ({ amp: "&", lt: "<", gt: ">", quot: '"', "#39": "'" })[e]);
 const inline = (s) => s.replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace(/`(.+?)`/g, "<code>$1</code>");
 const courseOf = (id) => state.courses.find((c) => c.id === id);
 const palette = (id) => PALETTE_CLASSES[id === "all" ? "all" : courseOf(id)?.color ?? "slate"] ?? PALETTE_CLASSES.slate;
@@ -96,12 +99,16 @@ function renderAnswer(text, msg) {
   let prev = { end: -1, n: 0 };
 
   let html = renderMarkdown(text).replace(CITE_RE, (raw, course, date, topic, quote, offset, whole) => {
-    const label = `${course} ${date}: ${topic.trim()}`;
-    const info = byRaw[raw.replace(/&quot;/g, '"')];
+    // The answer was escaped before this ran, so the pieces of a citation are un-escaped again before they are
+    // compared with the real note labels and quotes (which contain plain apostrophes, ampersands and quotes).
+    topic = unesc(topic).trim();
+    quote = quote ? unesc(quote) : "";
+    const label = `${course} ${date}: ${topic}`;
+    const info = byRaw[unesc(raw)];
     const id = info?.noteId || byLabel[label] || "";
     const bad = !!info && info.status !== "ok";
     const key = id || label;
-    if (!sources.has(key)) sources.set(key, { n: sources.size + 1, id, label, course, date, topic: topic.trim(), quote: quote ? quote.replace(/&quot;/g, '"') : "", bad });
+    if (!sources.has(key)) sources.set(key, { n: sources.size + 1, id, label, course, date, topic, quote, bad });
     const src = sources.get(key);
     const gap = whole.slice(prev.end, offset);
     const dupe = prev.n === src.n && /^\s*$/.test(gap);
@@ -109,7 +116,7 @@ function renderAnswer(text, msg) {
     if (dupe) return gap;
     const why = bad ? (info.status === "unknown_note" ? "This citation doesn't match a note that was sent." : "Quote not found word-for-word in the note.") : "";
     return `<button type="button" class="cite mx-0.5 inline-grid h-[1.35rem] min-w-[1.35rem] place-items-center rounded-full px-1.5 align-[1px] text-[11px] font-extrabold leading-none transition active:scale-90 ${bad ? BAD_CHIP : palette(course).chip}"
-      data-id="${esc(id)}" data-quote="${esc(quote ? quote.replace(/&quot;/g, '"') : "")}" data-label="${esc(label)}" data-why="${esc(why)}" aria-label="Source ${src.n}: ${esc(label)}">${bad ? "!" : src.n}</button>`;
+      data-id="${esc(id)}" data-quote="${esc(quote)}" data-label="${esc(label)}" data-why="${esc(why)}" aria-label="Source ${src.n}: ${esc(label)}">${bad ? "!" : src.n}</button>`;
   });
 
   html = html.replace(/\(General knowledge\)/g, '<span class="rounded-md bg-sun/30 px-1.5 py-px text-[11px] font-extrabold text-amber-800 dark:text-sun">🌐 General knowledge</span>');

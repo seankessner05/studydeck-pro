@@ -48,6 +48,9 @@ StudyDeck fixes both. It copies my Granola notes straight into class folders (us
 - 🗣️ **Teach-back tutor.** You explain a topic first, notes closed. Claude finds the key ideas in your note and checks which ones you got across, asks one question per round without stating what you missed, and ends with a score, the gaps (each with a quote from your note) and a next step. A covered idea only counts if its evidence is in your own words.
 - 🎮 **Match game, Anki export, backups.** A quick match game from your cards. Cards and quiz questions export as an Anki import file (the receipt quote is in the back, tagged by class and section). Your study data is backed up automatically once a day, and on demand, keeping the newest ten.
 - ⏸ **AI usage meter and Pause AI.** The sidebar shows how many times Claude has been asked today. One switch turns every AI feature off; reviewing cards never uses AI.
+- 🗑 **Nothing is deleted on the spot.** Deleting a card, question or problem moves it to a trash with its whole answer history. An Undo message appears right away, and the Trash list can bring anything back for 30 days.
+- 💾 **Backups you can actually use.** Besides the daily automatic copy, the Progress screen can restore one: it shows what the backup holds next to what you have now, checks the file is healthy, saves your current data first so the restore can be undone, then swaps.
+- 🧯 **Plain words when Claude says no.** A usage limit (with the reset time when Claude gives one), a signed-out CLI and a timeout each get their own message. A generation job stops at the usage limit instead of failing every remaining lecture, and its report survives a restart.
 - 🩺 **Doctor.** One screen (or `npm run doctor`) checks your setup and says how to fix anything.
 - 🔒 **Local and private.** Notes are markdown files on your machine. No database server, no API keys, no cloud storage.
 
@@ -148,7 +151,7 @@ Notes that aren't in a mapped Granola folder land in the Inbox (`./notes/unsorte
 
 - `./notes` (your real notes), `./data` (chat history, settings, and your Granola login) and `.env*` are git-ignored. Only the fictional sample notes are in this repo. The Granola login file is created readable by you only.
 - Notes are sent to Claude through your own Claude Code login, the same as if you pasted them into Claude yourself. Nothing else leaves your machine.
-- The server listens on `127.0.0.1` only.
+- The server listens on `127.0.0.1` only, and it also checks who is asking. A browser will carry requests from any website to a server on your own machine, so every request must name this machine and port in its `Host` header (which stops DNS rebinding, where a hostile site points its own domain at your computer), and anything that changes data must come from the app's own pages. Other sites cannot make your browser call the API, bodies must be JSON, and the page runs under a content policy with no inline scripts and no outside resources.
 
 ## Roadmap
 
@@ -180,12 +183,13 @@ The goal: a Quizlet-meets-NotebookLM study partner that knows your whole semeste
 ## Development
 
 ```bash
-npm test          # 170+ tests: notes, retrieval, citations, prompts, Granola parsing and sync, class registry, migrations, doctor, API
+npm test          # 370+ unit and API tests: notes, retrieval, citations, generation gates, study logic, security, trash, restore, jobs
+npm run test:e2e  # browser tests (Playwright, desktop and phone): the five critical study flows, undo and restore, and hostile text on every screen
 npm run eval      # 19 real questions to Claude; reports regressions vs. the last run (needs a Claude login)
 npm run typecheck
 ```
 
-Tests never call the real CLI: the Claude runner is injected, so the API and sync are tested with fakes.
+Tests never call the real CLI: the Claude runner is injected, so the API and sync are tested with fakes. The browser tests start their own server (`e2e/server.ts`) on made-up notes in a temporary folder. The first time, run `npx playwright install chromium`. GitHub Actions runs the typecheck, the unit tests and the browser tests on every push; no secrets are involved.
 
 ## Acknowledgments
 

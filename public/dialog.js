@@ -2,16 +2,24 @@
 // Keyboard and screen-reader behaviour lives here once: focus moves into the dialog and stays there, Escape or a
 // click outside closes it, and focus returns to the button that opened it.
 
-const DLG = { returnFocus: null, onClose: null };
+const DLG = { returnFocus: null, returnSelector: null, onClose: null };
+
+/** A way to find the opening button again if the screen behind the dialog was redrawn while it was open. */
+function selectorFor(el) {
+  if (!el) return null;
+  if (el.id) return `#${el.id}`;
+  const name = el.getAttributeNames().find((n) => n.startsWith("data-"));
+  return name ? `[${name}]` : null;
+}
 
 function closeDialog() {
   const panel = document.getElementById("dialogPanel");
   if (!panel) return;
   panel.remove();
-  const back = DLG.returnFocus;
+  const back = DLG.returnFocus && document.contains(DLG.returnFocus) ? DLG.returnFocus : DLG.returnSelector ? document.querySelector(DLG.returnSelector) : null;
   const onClose = DLG.onClose;
-  DLG.returnFocus = DLG.onClose = null;
-  if (back && document.contains(back)) back.focus();
+  DLG.returnFocus = DLG.returnSelector = DLG.onClose = null;
+  if (back) back.focus();
   if (onClose) onClose();
 }
 
@@ -19,6 +27,7 @@ function closeDialog() {
 function openDialog(kind, title, opener, onClose) {
   closeDialog();
   DLG.returnFocus = opener || null;
+  DLG.returnSelector = selectorFor(opener);
   DLG.onClose = onClose || null;
   const panel = document.createElement("div");
   panel.id = "dialogPanel";

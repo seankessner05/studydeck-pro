@@ -16,7 +16,8 @@
     "doctor": "tsx --disable-warning=ExperimentalWarning src/doctor-cli.ts",
     "eval:cards": "tsx --disable-warning=ExperimentalWarning src/eval/cards.ts",
     "eval:quiz": "tsx --disable-warning=ExperimentalWarning src/eval/quiz.ts",
-    "eval:problems": "tsx --disable-warning=ExperimentalWarning src/eval/problems.ts"
+    "eval:problems": "tsx --disable-warning=ExperimentalWarning src/eval/problems.ts",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",
@@ -25,6 +26,7 @@
     "ts-fsrs": "^6.0.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.65.0",
     "@tailwindcss/cli": "^4.3.3",
     "@types/express": "^5.0.6",
     "@types/node": "^26.6.5",
