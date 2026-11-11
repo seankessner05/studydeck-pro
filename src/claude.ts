@@ -140,16 +140,75 @@ export const runClaude: Runner = (opts) =>
     child.stdin.end(opts.prompt);
   });
 
+export type ClaudeProblemKind = "missing" | "login" | "limit" | "busy" | "timeout" | "cancelled" | "other";
+
+export interface ClaudeProblem {
+  kind: ClaudeProblemKind;
+  /** What went wrong and what to do, in plain words. */
+  message: string;
+}
+
+/** A failure from the Claude CLI that has already been turned into plain words. */
+export class ClaudeError extends Error {
+  constructor(readonly kind: ClaudeProblemKind, message: string) {
+    super(message);
+    this.name = "ClaudeError";
+  }
+}
+
+const NO_AI_NEEDED = "Reviewing cards and taking quizzes and problems you already have still works: none of that uses Claude.";
+
+/** "resets 3pm (America/New_York)" or "…|1794370000" → "3pm" / "3:05 PM". Undefined when the CLI didn't say. */
+export function limitResetTime(msg: string): string | undefined {
+  const said = msg.match(/resets?\s+(?:at\s+)?(\d{1,2}(?::\d{2})?\s*(?:am|pm))/i);
+  if (said) return said[1].replace(/\s+/g, "").toLowerCase();
+  const epoch = msg.match(/\|(\d{10})\b/);
+  if (epoch) return new Date(Number(epoch[1]) * 1000).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  return undefined;
+}
+
+/** Work out which kind of failure this is. The order matters: a usage cap often mentions "limit" and "try again". */
+export function describeClaudeError(e: unknown): ClaudeProblem {
+  if (e instanceof ClaudeError) return { kind: e.kind, message: e.message };
+  const msg = e instanceof Error ? e.message : String(e);
+  if (/ENOENT/.test(msg)) {
+    return { kind: "missing", message: "Couldn't find the `claude` command. Install Claude Code and make sure it's on your PATH, then restart StudyDeck. The Doctor (stethoscope button) checks this for you." };
+  }
+  if (/not logged in|\/login|authenticat|oauth/i.test(msg)) {
+    return { kind: "login", message: `Claude Code isn't logged in (or its session expired). ${LOGIN_FIX}` };
+  }
+  if (/usage limit|hit your limit|limit reached|out of (?:extra )?usage|rate.?limit/i.test(msg)) {
+    const at = limitResetTime(msg);
+    return {
+      kind: "limit",
+      message: `You've reached your Claude plan's usage limit${at ? `, which resets at ${at}` : ". It resets by itself, usually within a few hours"}. Nothing is broken and nothing was lost. ${NO_AI_NEEDED}`,
+    };
+  }
+  if (/overloaded|529/i.test(msg)) {
+    return { kind: "busy", message: "Claude is overloaded right now (that's on Claude's side, not your usage limit). Wait a minute and try again." };
+  }
+  if (/SIGTERM|timed? ?out|took too long|exited with code (null|143|137)/i.test(msg)) {
+    return { kind: "timeout", message: "Claude took too long to answer. If your Mac went to sleep while it was working, that freezes the request: try again. Otherwise try a shorter question or a single class." };
+  }
+  if (/Cancelled/.test(msg)) return { kind: "cancelled", message: "Request cancelled." };
+  return { kind: "other", message: `Something went wrong talking to Claude: ${msg.slice(0, 300)}` };
+}
+
 /** Turn CLI failures into messages a student can act on. */
 export function friendlyError(e: unknown): string {
-  const msg = e instanceof Error ? e.message : String(e);
-  if (/ENOENT/.test(msg)) return "Couldn't find the `claude` command. Install Claude Code and make sure it's on your PATH, then restart StudyDeck.";
-  if (/not logged in|\/login|authenticat|oauth/i.test(msg)) return `Claude Code isn't logged in (or its session expired). ${LOGIN_FIX}`;
-  if (/rate.?limit|usage limit|overloaded|529/i.test(msg)) return "Claude is busy or you've hit your usage limit. Wait a minute and try again.";
-  if (/SIGTERM|timed? ?out|took too long|exited with code (null|143|137)/i.test(msg)) return "Claude took too long to answer. If your Mac went to sleep while it was working, that freezes the request: try again. Otherwise try a shorter question or a single class.";
-  if (/Cancelled/.test(msg)) return "Request cancelled.";
-  return `Something went wrong talking to Claude: ${msg.slice(0, 300)}`;
+  return describeClaudeError(e).message;
 }
+
+/** Wrap a runner so every failure it throws is already a ClaudeError: routes can then tell "Claude failed" from a bug. */
+export const guardRunner = (runner: Runner): Runner => async (opts) => {
+  try {
+    return await runner(opts);
+  } catch (e) {
+    if (opts.signal?.aborted) throw e;
+    const p = describeClaudeError(e);
+    throw new ClaudeError(p.kind, p.message);
+  }
+};
 
 export interface AuthStatus {
   loggedIn: boolean;

@@ -1,5 +1,5 @@
 import type { Runner } from "../claude.js";
-import { friendlyError } from "../claude.js";
+import { describeClaudeError } from "../claude.js";
 import type { Course } from "../courses.js";
 import type { Db } from "../library/db.js";
 import type { Note } from "../notes.js";
@@ -39,6 +39,8 @@ export interface JobStatus {
   finishedAt?: number;
   items: JobItem[];
   totals: { created: number; duplicates: number; dropped: number; calls: number; costUsd: number };
+  /** Set when the job gave up early (usage limit, not signed in): the remaining lectures were skipped, not tried. */
+  stoppedBecause?: string;
 }
 
 export interface StartOptions {
@@ -52,7 +54,8 @@ export interface StartOptions {
   concurrency?: number;
 }
 
-const LOGIN_PROBLEM = /isn't logged in|session expired|claude.+not found|on your path/i;
+/** Failures where asking again for the next lecture cannot work: not signed in, CLI missing, or the plan's usage limit. */
+const STOPS_THE_JOB = new Set(["login", "missing", "limit"]);
 
 /** What processing one lecture produced. */
 export interface Outcome {
@@ -147,12 +150,15 @@ abstract class LectureJobs {
             item.state = "skipped";
             return;
           }
-          const message = friendlyError(e);
+          const problem = describeClaudeError(e);
           item.finishedAt = Date.now();
           item.state = "error";
-          item.error = message;
-          // No point asking again if Claude isn't signed in.
-          if (LOGIN_PROBLEM.test(message)) stopAll = true;
+          item.error = problem.message;
+          // No point asking again if Claude isn't signed in or the usage limit is reached: the rest are skipped, not failed.
+          if (STOPS_THE_JOB.has(problem.kind)) {
+            stopAll = true;
+            job.stoppedBecause = problem.message;
+          }
         }
       }
     };

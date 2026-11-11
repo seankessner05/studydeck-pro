@@ -29,7 +29,7 @@ const base = (over: Partial<DoctorDeps> = {}): DoctorDeps => {
   const notesDir = tmp();
   fs.mkdirSync(path.join(notesDir, "ECON300"));
   fs.writeFileSync(path.join(notesDir, "ECON300", "2026-10-14_a.md"), "---\ntitle: A\n---\nbody");
-  return { exec: machine(healthy), dataDir: tmp(), notesDir, courses: DEFAULT_COURSES, ...over };
+  return { exec: machine(healthy), dataDir: tmp(), notesDir, courses: DEFAULT_COURSES, granolaConnected: () => true, ...over };
 };
 const byId = (cs: Awaited<ReturnType<typeof runDoctor>>, id: string) => cs.find((c) => c.id === id)!;
 
@@ -46,7 +46,8 @@ describe("doctor", () => {
     expect(byId(checks, "claude")).toMatchObject({ status: "fail" });
     expect(byId(checks, "claude").fix).toMatch(/Install Claude Code/);
     expect(byId(checks, "login")).toBeUndefined();
-    expect(byId(checks, "granola").status).toBe("warn");
+    // Granola doesn't depend on Claude at all, so a missing CLI must not drag it down.
+    expect(byId(checks, "granola").status).toBe("ok");
   });
 
   it("explains an expired login with the exact command", async () => {
@@ -55,18 +56,23 @@ describe("doctor", () => {
     expect(byId(checks, "login").fix).toContain("claude auth login");
   });
 
-  it("distinguishes Granola not configured from not connected", async () => {
-    const none = await runDoctor(base({ exec: machine({ ...healthy, "claude mcp list": res("claude.ai Gmail: x - ✔ Connected\n") }) }));
-    expect(byId(none, "granola").fix).toContain("claude mcp add --transport http granola https://mcp.granola.ai/mcp");
-    const needs = await runDoctor(base({ exec: machine({ ...healthy, "claude mcp list": res("claude.ai Granola: https://mcp.granola.ai/mcp - ! Needs authentication\n") }) }));
-    expect(byId(needs, "granola").fix).toContain("/mcp");
+  it("checks StudyDeck's own Granola sign-in, not the connector inside Claude Code", async () => {
+    // The Claude Code connector says "Connected", but the app has no sign-in of its own: that must be a warning.
+    const dataDir = tmp();
+    const none = await runDoctor(base({ dataDir, granolaConnected: undefined }));
+    expect(byId(none, "granola")).toMatchObject({ status: "warn" });
+    expect(byId(none, "granola").fix).toContain("Connect Granola");
+    expect(byId(none, "granola").fix).not.toContain("mcp");
+    // And the other way round: the app is signed in while the Claude Code connector isn't even configured.
+    fs.writeFileSync(path.join(dataDir, "granola-auth.json"), JSON.stringify({ tokens: { access_token: "t" } }));
+    const signedIn = await runDoctor(base({ dataDir, granolaConnected: undefined, exec: machine({ ...healthy, "claude mcp list": res("(no servers)\n") }) }));
+    expect(byId(signedIn, "granola").status).toBe("ok");
   });
 
-  it("doesn't blame Granola when the real problem is the login", async () => {
-    const out = await runDoctor(base({ exec: machine({ ...healthy, "claude auth status": res('{"loggedIn": false}'), "claude mcp list": res("(no servers)\n") }) }));
-    expect(byId(out, "granola").status).toBe("warn");
-    expect(byId(out, "granola").fix).toContain("claude auth login");
-    expect(byId(out, "granola").fix).not.toContain("mcp add");
+  it("doesn't blame Granola when the real problem is the Claude login", async () => {
+    const out = await runDoctor(base({ exec: machine({ ...healthy, "claude auth status": res('{"loggedIn": false}') }) }));
+    expect(byId(out, "login").status).toBe("fail");
+    expect(byId(out, "granola").status).toBe("ok");
   });
 
   it("shows the billing situation: subscription login, API keys ignored", async () => {

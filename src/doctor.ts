@@ -5,6 +5,7 @@ import { DatabaseSync } from "node:sqlite";
 import { BILLING_ENV_VARS, LOGIN_FIX, parseAuthStatus, type AuthStatus, type Runner } from "./claude.js";
 import { idsOf, type Course } from "./courses.js";
 import { loadNotes } from "./notes.js";
+import { hasTokens } from "./granola/auth.js";
 
 export type CheckStatus = "ok" | "warn" | "fail";
 
@@ -36,6 +37,8 @@ export interface DoctorDeps {
   usage?: () => { today: { calls: number; costUsd: number }; week: { calls: number; costUsd: number }; paused: boolean };
   /** Environment to inspect for API keys. Defaults to process.env. */
   env?: NodeJS.ProcessEnv;
+  /** Is StudyDeck's own Granola sign-in present? Defaults to looking for it in the data folder. */
+  granolaConnected?: () => boolean;
   /** Throws if full-text search is unavailable. Injectable for tests. */
   sqliteProbe?: () => void;
 }
@@ -146,18 +149,13 @@ export async function runDoctor(deps: DoctorDeps, opts: { deep?: boolean } = {})
     return checks;
   };
 
+  // StudyDeck signs in to Granola itself (the sidebar button) and keeps that sign-in in the data folder.
+  // The Granola connector inside Claude Code is a different thing and is not used, so it is not what gets checked.
   const granolaCheck = async (): Promise<DoctorCheck> => {
-    if (!(await getAuth()).loggedIn) {
-      return bad("granola", "Granola connector", "warn", "Can't check yet: your connectors come with your Claude account, and you're not signed in.", LOGIN_FIX);
-    }
-    const r = await tryRun("claude", ["mcp", "list"], 45_000);
-    if (!r) return bad("granola", "Granola connector", "warn", "Couldn't check (the `claude` command wasn't available).", "Fix the Claude Code CLI first.");
-    const line = r.stdout.split("\n").find((l) => /granola/i.test(l));
-    if (!line) {
-      return bad("granola", "Granola connector", "warn", "Not configured. Sync from Granola won't work.", "Run: claude mcp add --transport http granola https://mcp.granola.ai/mcp  then run /mcp inside Claude Code to sign in.");
-    }
-    if (/connected/i.test(line) && !/needs auth/i.test(line)) return ok("granola", "Granola connector", "connected");
-    return bad("granola", "Granola connector", "warn", "Configured but not connected.", "Run /mcp inside Claude Code and sign in to Granola.");
+    const connected = deps.granolaConnected ? deps.granolaConnected() : hasTokens(path.join(deps.dataDir, "granola-auth.json"));
+    return connected
+      ? ok("granola", "Granola", "signed in. New and edited notes are copied in by themselves every 30 minutes.")
+      : bad("granola", "Granola", "warn", "Not connected, so new notes won't arrive.", "Click “Connect Granola” in the sidebar and sign in. It takes one click and uses no Claude.");
   };
 
   const notesCheck = async (): Promise<DoctorCheck> => {

@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
-import { LOGIN_FIX, checkAuth, checkClaude, friendlyError, runClaude, type Runner } from "./claude.js";
+import { ClaudeError, LOGIN_FIX, checkAuth, checkClaude, friendlyError, guardRunner, runClaude, type Runner } from "./claude.js";
 import { DEFAULT_COURSES, PALETTE, PROFILES, activeIdsOf, idsOf } from "./courses.js";
 import { MoveError, NOTES_DIR, SAMPLE_DIR, listCourses, loadNotes, moveNote, noteSnippet, readNote, citationLabel, resolveNotesDir } from "./notes.js";
 import { PROFILE_INFO } from "./profiles.js";
@@ -56,7 +56,9 @@ function granolaMessage(e: unknown): string {
   return `Granola sync didn't work: ${msg.slice(0, 300)}`;
 }
 
-export function createApp(deps: AppDeps) {
+export function createApp(rawDeps: AppDeps) {
+  // Every Claude failure reaches the routes already in plain words, with its kind attached.
+  const deps: AppDeps = { ...rawDeps, runner: guardRunner(rawDeps.runner) };
   const app = express();
   const granola = deps.granola ?? new GranolaConnection(path.join(deps.dataDir, "granola-auth.json"));
   const redirectFor = (req: express.Request) => `${req.protocol}://${req.get("host")}/api/granola/callback`;
@@ -258,7 +260,7 @@ export function createApp(deps: AppDeps) {
       : deps.runner;
     res.json(
       await runDoctor(
-        { dataDir: deps.dataDir, notesDir: deps.notesDir, courses: loadRegistry(deps.dataDir), runner, exec: deps.doctorExec, usage: () => ({ ...usageSummary(sdb()), paused: paused() }) },
+        { dataDir: deps.dataDir, notesDir: deps.notesDir, courses: loadRegistry(deps.dataDir), runner, exec: deps.doctorExec, granolaConnected: () => granola.isConnected(), usage: () => ({ ...usageSummary(sdb()), paused: paused() }) },
         { deep: req.query.deep === "1" },
       ),
     );
@@ -274,6 +276,8 @@ export function createApp(deps: AppDeps) {
       await fn(req, res);
     } catch (e) {
       if (e instanceof CardError || e instanceof QuizError || e instanceof ExamError) return void res.status(400).json({ error: e.message });
+      // Claude said no (usage limit, not signed in, too slow): say so in plain words instead of a bare server error.
+      if (e instanceof ClaudeError) return void res.status(e.kind === "limit" ? 429 : 503).json({ error: e.message, kind: e.kind });
       res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
     }
   };

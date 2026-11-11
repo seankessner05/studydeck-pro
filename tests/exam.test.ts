@@ -222,8 +222,11 @@ describe("building and taking an exam", () => {
     const s = createSitting(db, { course: "ECON301", name: "Mock", noteIds: [A.id, B.id], preset: "quick", written: [] });
     const answers: Record<string, unknown> = {};
     const mcqs = s.items.filter((i) => i.type === "mcq");
-    answers[mcqs[0].id] = [1];
-    answers[mcqs[1].id] = [0];
+    // Which questions land in the exam is shuffled, so look each key up: one answered right, one wrong.
+    const keyOf = (stem: string): number[] => JSON.parse((db.prepare("SELECT answer FROM questions WHERE stem = ?").get(stem) as { answer: string }).answer);
+    const wrongFor = (stem: string) => [[0], [1], [2]].find((pick) => JSON.stringify(pick) !== JSON.stringify(keyOf(stem)))!;
+    answers[mcqs[0].id] = keyOf(mcqs[0].stem);
+    answers[mcqs[1].id] = wrongFor(mcqs[1].stem);
     submitSitting(db, s.id, answers, new Date());
     const e = collectEvidence(db, "ECON301").filter((x) => x.source === "quiz");
     expect(e).toHaveLength(2);

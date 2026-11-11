@@ -95,15 +95,29 @@ describe("card generation job", () => {
   it("keeps going when one lecture fails, and says which and why", async () => {
     const db = studyDb(tmp());
     const bad = econ301[1].title;
-    const jobs = new CardGenerationJobs(fakeClaude({ fail: (t) => (t === bad ? new Error("rate_limit_error") : undefined) }));
+    // A one-off failure (here: Claude was too slow on one lecture) must not stop the others.
+    const jobs = new CardGenerationJobs(fakeClaude({ fail: (t) => (t === bad ? new Error("Claude took too long to answer (timed out)") : undefined) }));
     jobs.start(startOpts(db));
     const job = await finish(jobs);
     expect(job.status).toBe("done");
     expect(job.items.filter((i) => i.state === "done")).toHaveLength(2);
     const failed = job.items.find((i) => i.state === "error")!;
     expect(failed.title).toBe(bad);
-    expect(failed.error).toMatch(/usage limit/);
+    expect(failed.error).toMatch(/took too long/);
     expect(job.totals.created).toBe(4);
+    expect(job.stoppedBecause).toBeUndefined();
+  });
+
+  it("stops at the usage limit instead of failing every remaining lecture one by one", async () => {
+    const db = studyDb(tmp());
+    let calls = 0;
+    const jobs = new CardGenerationJobs(fakeClaude({ onCall: () => calls++, fail: () => new Error("You've hit your limit · resets 3pm (America/New_York)") }));
+    jobs.start(startOpts(db, sample.filter((n) => n.course === "ECON300"), { concurrency: 1 }));
+    const job = await finish(jobs);
+    expect(calls).toBe(1);
+    expect(job.items.map((i) => i.state)).toEqual(["error", "skipped", "skipped"]);
+    expect(job.items[0].error).toContain("resets at 3pm");
+    expect(job.stoppedBecause).toContain("usage limit");
   });
 
   it("stops asking Claude once it's clear you're signed out", async () => {
