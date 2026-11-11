@@ -627,7 +627,8 @@ function renderStudyHome() {
       <div class="flex items-start justify-between gap-3"><div class="text-sm font-extrabold opacity-80">Study today · ${esc(name)}</div>
         <div class="rounded-full bg-white/20 px-3 py-1 text-xs font-extrabold">🔥 ${t.streak}-day streak</div></div>
       <div class="mt-2 flex items-baseline gap-2"><span class="text-6xl font-extrabold tabular-nums">${todo}</span><span class="text-lg font-bold opacity-80">${todo === 1 ? "card" : "cards"} to study</span></div>
-      <div class="mt-1 text-sm font-semibold opacity-80">${k.due} due · ${k.learning} relearning · ${k.newAvailable} new (limit ${t.newPerDay} a day)</div>
+      <div class="mt-1 text-sm font-semibold opacity-80">${k.due} due · ${k.learning} relearning · ${k.newAvailable} new</div>
+      <div class="mt-2 flex flex-wrap items-center gap-1.5 text-xs font-bold"><span class="opacity-80" title="How many brand-new cards you are shown each day. Raise it when an exam is close.">New cards a day</span>${[10, 20, 30, 50, 100].map((n) => `<button data-newlimit="${n}" class="rounded-lg px-2.5 py-1 font-extrabold transition ${t.newPerDay === n ? "bg-white text-brand-700" : "bg-white/20 text-white hover:bg-white/30"}">${n}</button>`).join("")}</div>
       <button id="startStudy" ${todo ? "" : "disabled"} class="mt-5 rounded-2xl bg-white px-6 py-3 text-sm font-extrabold text-brand-700 shadow-card transition hover:-translate-y-0.5 active:scale-95 disabled:opacity-50 disabled:hover:translate-y-0">${todo ? "Start session →" : k.total ? "All caught up 🎉" : "No cards yet"}</button>
     </div>
 
@@ -662,7 +663,7 @@ function renderStudyHome() {
 }
 
 async function startStudySession() {
-  const res = await fetch(`/api/study/session?course=${encodeURIComponent(state.course)}&limit=50`);
+  const res = await fetch(`/api/study/session?course=${encodeURIComponent(state.course)}&limit=120`);
   if (!res.ok) return;
   const queue = await res.json();
   if (!queue.length) return loadStudyToday();

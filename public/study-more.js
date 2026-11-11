@@ -763,6 +763,9 @@ $("studyBody").addEventListener("click", (e) => {
   const lt = hit("[data-lect-toggle]"); if (lt) { PG.openLecture = PG.openLecture === lt.dataset.lectToggle ? null : lt.dataset.lectToggle; return renderProgress(); }
   const wq = hit("[data-weak-quiz]"); if (wq) { const w = PG.data.weakSpots[Number(wq.dataset.weakQuiz)]; return (async () => { if (w.course !== state.course) await selectCourse(w.course); S.sub = "quiz"; return startQuiz([w.noteId]); })(); }
   const wt = hit("[data-weak-tutor]"); if (wt) { const w = PG.data.weakSpots[Number(wt.dataset.weakTutor)]; return (async () => { if (w.course !== state.course) await selectCourse(w.course); TUT.mode = "home"; S.sub = "tutor"; renderStudy(); await loadTutorHome(); return pickTutorLecture(w.noteId); })(); }
+  // new cards a day
+  const nl = hit("[data-newlimit]");
+  if (nl) return api("/api/settings", "POST", { newPerDay: Number(nl.dataset.newlimit) }).then((r) => { if (r.ok) return Promise.all([loadStudyToday(), loadProgress()]); const el = $("studyToolMsg"); if (el) el.textContent = r.data.error || "Couldn't change that."; });
   // Match game, backup
   if (hit("[data-match-start]")) return startMatch();
   const mt = hit("[data-mt-tile]"); if (mt) return tapTile(Number(mt.dataset.mtTile));

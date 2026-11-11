@@ -11,9 +11,9 @@ import { RegistryError, addCourse, loadRegistry, updateCourse } from "./registry
 import { type ChatTurn } from "./prompt.js";
 import { answerQuestion } from "./answer.js";
 import { appendMessage, clearChat, loadChats, studyStreak, type ChatMessage } from "./chats.js";
-import { loadSettings, saveSettings, type Settings } from "./settings.js";
+import { MAX_NEW_PER_DAY, MIN_NEW_PER_DAY, loadSettings, saveSettings, validNewPerDay, type Settings } from "./settings.js";
 import { studyDb } from "./study/db.js";
-import { CardError, NEW_PER_DAY, accuracy, addCard, buildSession, counts, coverage, deleteCard, forecast, listCards, reviewCard, studyDays } from "./study/cards.js";
+import { CardError, accuracy, addCard, buildSession, counts, coverage, deleteCard, forecast, listCards, reviewCard, studyDays } from "./study/cards.js";
 import { QuizError, answerQuestion as recordQuizAnswer, deleteQuestion, finishQuiz, getQuestion, listQuestions, questionCoverage, quizAccuracy, quizCounts, startQuiz } from "./study/questions.js";
 import { QUIZ_TARGET } from "./study/quizgen.js";
 import { PROBLEM_TARGET } from "./study/problemgen.js";
@@ -111,6 +111,7 @@ export function createApp(deps: AppDeps) {
   const sdb = () => studyDb(deps.dataDir, current().source === "samples");
   const streakNow = () => studyStreak(loadChats(deps.dataDir), new Date(), studyDays(sdb()));
   const paused = () => loadSettings(deps.dataDir).aiPaused;
+  const newLimit = () => loadSettings(deps.dataDir).newPerDay;
   const chatKey = (course: string) => (current().source === "samples" ? `sample:${course}` : course);
 
   app.get("/api/state", (_req, res) => {
@@ -143,6 +144,11 @@ export function createApp(deps: AppDeps) {
         quizGeneration.cancel();
         problemGeneration.cancel();
       }
+    }
+    if (req.body?.newPerDay !== undefined) {
+      const n = validNewPerDay(req.body.newPerDay);
+      if (n === undefined) return res.status(400).json({ error: `Pick a whole number of new cards a day from ${MIN_NEW_PER_DAY} to ${MAX_NEW_PER_DAY}.` });
+      patch.newPerDay = n;
     }
     res.json({ ok: true, ...saveSettings(deps.dataDir, patch) });
   });
@@ -272,13 +278,13 @@ export function createApp(deps: AppDeps) {
     const course = scopeOf(req.query.course);
     if (!course) return res.status(404).json({ error: "Unknown class" });
     const db = sdb();
-    res.json({ counts: counts(db, course), forecast: forecast(db, course), accuracy: accuracy(db, course), streak: streakNow(), newPerDay: NEW_PER_DAY });
+    res.json({ counts: counts(db, course, new Date(), newLimit()), forecast: forecast(db, course), accuracy: accuracy(db, course), streak: streakNow(), newPerDay: newLimit() });
   }));
 
   app.get("/api/study/session", studyRoute(async (req, res) => {
     const course = scopeOf(req.query.course);
     if (!course) return res.status(404).json({ error: "Unknown class" });
-    res.json(await buildSession(sdb(), course, new Date(), Math.min(200, Number(req.query.limit) || 50)));
+    res.json(await buildSession(sdb(), course, new Date(), Math.min(200, Number(req.query.limit) || 50), newLimit()));
   }));
 
   app.post("/api/study/review", studyRoute(async (req, res) => {
@@ -425,7 +431,7 @@ export function createApp(deps: AppDeps) {
     return loadNotes(course, cur.dir, activeIdsOf(cur.courses)).map((n) => ({ id: n.id, course: n.course, title: n.title, date: n.date }));
   };
   const dueIn = (course: string) => {
-    const k = counts(sdb(), course);
+    const k = counts(sdb(), course, new Date(), newLimit());
     return k.due + k.learning;
   };
 
