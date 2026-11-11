@@ -13,8 +13,8 @@ import { answerQuestion } from "./answer.js";
 import { appendMessage, clearChat, loadChats, studyStreak, type ChatMessage } from "./chats.js";
 import { MAX_NEW_PER_DAY, MIN_NEW_PER_DAY, loadSettings, saveSettings, validNewPerDay, type Settings } from "./settings.js";
 import { studyDb } from "./study/db.js";
-import { CardError, accuracy, addCard, buildSession, counts, coverage, deleteCard, forecast, listCards, reviewCard, studyDays } from "./study/cards.js";
-import { QuizError, answerQuestion as recordQuizAnswer, deleteQuestion, finishQuiz, getQuestion, listQuestions, questionCoverage, quizAccuracy, quizCounts, startQuiz } from "./study/questions.js";
+import { CardError, accuracy, addCard, buildSession, counts, coverage, forecast, listCards, reviewCard, studyDays } from "./study/cards.js";
+import { QuizError, answerQuestion as recordQuizAnswer, finishQuiz, getQuestion, listQuestions, questionCoverage, quizAccuracy, quizCounts, startQuiz } from "./study/questions.js";
 import { QUIZ_TARGET } from "./study/quizgen.js";
 import { PROBLEM_TARGET } from "./study/problemgen.js";
 import { ExamError, createExam, daysUntil, deleteExam, getExam, inScope, listExams } from "./study/exams.js";
@@ -26,13 +26,14 @@ import { generateWrittenQuestions, gradeWritten } from "./study/written.js";
 import { PRESETS, applyRemark, applyWrittenGrades, createSitting, getSitting, listSittings, pendingWritten, remarkInput, submitSitting, summarize, type Preset } from "./study/sittings.js";
 import { ONEPAGE_LIMIT, buildGuide, cardsForSheet, deleteSheet, generateOnePage, getSheet, listSheets, saveSheet, sheetToMarkdown } from "./study/cheatsheets.js";
 import { buildPlan, insights as buildInsights, lectureProgress, readiness, weakSpots } from "./study/mastery.js";
-import { answerProblem, deleteProblem, finishPractice, listProblems, problemAccuracy, problemCounts, problemCoverage, startPractice } from "./study/problems.js";
+import { answerProblem, finishPractice, listProblems, problemAccuracy, problemCounts, problemCoverage, startPractice } from "./study/problems.js";
 import { DENSITIES, DENSITY_TARGET, noteVersion, type Density } from "./study/cardgen.js";
 import { CardGenerationJobs, ProblemGenerationJobs, QuestionGenerationJobs } from "./study/jobs.js";
 import { recordUsage, usageSummary } from "./study/usage.js";
 import { runDoctor, type DoctorDeps } from "./doctor.js";
 import { DATA_DIR } from "./paths.js";
 import { localGuard } from "./security.js";
+import { TRASH_DAYS, TrashError, emptyOldTrash, listTrash, moveToTrash, purgeTrash, restoreFromTrash, type TrashKind } from "./study/trash.js";
 import { GranolaConnection, GranolaError, NotConnectedError, type GranolaService } from "./granola/api.js";
 import { runDirectSync } from "./granola/sync.js";
 
@@ -275,12 +276,32 @@ export function createApp(rawDeps: AppDeps) {
     try {
       await fn(req, res);
     } catch (e) {
-      if (e instanceof CardError || e instanceof QuizError || e instanceof ExamError) return void res.status(400).json({ error: e.message });
+      if (e instanceof CardError || e instanceof QuizError || e instanceof ExamError || e instanceof TrashError) return void res.status(400).json({ error: e.message });
       // Claude said no (usage limit, not signed in, too slow): say so in plain words instead of a bare server error.
       if (e instanceof ClaudeError) return void res.status(e.kind === "limit" ? 429 : 503).json({ error: e.message, kind: e.kind });
       res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
     }
   };
+
+  /** Deleting moves the item to the trash, so the answer carries what "Undo" needs to put it back. */
+  const trashed = (kind: TrashKind, id: string) => {
+    const entry = moveToTrash(sdb(), kind, id);
+    return { ok: !!entry, trash: entry ?? null };
+  };
+
+  app.get("/api/study/trash", studyRoute((req, res) => {
+    const course = scopeOf(req.query.course);
+    if (!course) return res.status(404).json({ error: "Unknown class" });
+    res.json({ keptDays: TRASH_DAYS, items: listTrash(sdb(), course) });
+  }));
+
+  app.post("/api/study/trash/:id/restore", studyRoute((req, res) => {
+    res.json({ ok: true, restored: restoreFromTrash(sdb(), String(req.params.id)) });
+  }));
+
+  app.delete("/api/study/trash/:id", studyRoute((req, res) => {
+    res.json({ ok: purgeTrash(sdb(), String(req.params.id)) });
+  }));
 
   app.get("/api/study/today", studyRoute((req, res) => {
     const course = scopeOf(req.query.course);
@@ -314,7 +335,7 @@ export function createApp(rawDeps: AppDeps) {
   }));
 
   app.delete("/api/study/cards/:id", studyRoute((req, res) => {
-    res.json({ ok: deleteCard(sdb(), String(req.params.id)) });
+    res.json(trashed("card", String(req.params.id)));
   }));
 
   // ---- study: generate cards and quiz questions from lectures ----
@@ -430,7 +451,7 @@ export function createApp(rawDeps: AppDeps) {
   }));
 
   app.delete("/api/study/quiz/questions/:id", studyRoute((req, res) => {
-    res.json({ ok: deleteQuestion(sdb(), String(req.params.id)) });
+    res.json(trashed("question", String(req.params.id)));
   }));
 
   // ---- study: exams, progress and the daily plan ----
@@ -745,7 +766,7 @@ export function createApp(rawDeps: AppDeps) {
   }));
 
   app.delete("/api/study/problems/:id", studyRoute((req, res) => {
-    res.json({ ok: deleteProblem(sdb(), String(req.params.id)) });
+    res.json(trashed("problem", String(req.params.id)));
   }));
 
   /** A second explanation of one question, written from the lecture note. Costs one Claude call; the answer key itself was already checked. */
@@ -845,6 +866,11 @@ function main() {
       if (made) console.log(`Backed up your study data to data/backups/${made.file}`);
     } catch {
       // a failed backup must never stop the app
+    }
+    try {
+      emptyOldTrash(studyDb(DATA_DIR, false));
+    } catch {
+      // nor must tidying the trash
     }
     console.log(`StudyDeck running at http://localhost:${port}  (${c.version})`);
     if (!checkAuth().loggedIn) console.warn(`\n⚠ Claude Code isn't logged in, so questions will fail until you sign in. ${LOGIN_FIX}\n`);

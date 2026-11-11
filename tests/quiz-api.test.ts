@@ -182,7 +182,7 @@ describe("taking a quiz over the API", () => {
   });
 
   it("deletes a question", async () => {
-    expect(await (await j(`/api/study/quiz/questions/${questions[3].id}`, "DELETE")).json()).toEqual({ ok: true });
+    expect(await (await j(`/api/study/quiz/questions/${questions[3].id}`, "DELETE")).json()).toMatchObject({ ok: true });
     expect((await (await j("/api/study/quiz/home?course=ECON301")).json()).counts.total).toBe(8);
   });
 

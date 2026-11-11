@@ -616,7 +616,7 @@ function renderStudyHome() {
   const cardsHtml = (S.cards || []).slice(0, 30).map((c) => `<div class="flex items-center gap-3 rounded-xl px-3 py-2 hover:bg-slate-50 dark:hover:bg-ink-700">
       <span class="shrink-0 text-base" title="${c.origin === 'generated' ? 'Made from a lecture' : 'Made by hand'}">${c.origin === "generated" ? "✨" : "✍️"}</span><span class="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-extrabold text-slate-500 dark:bg-ink-700 dark:text-slate-300">${STATE_LABEL[c.state]}</span>
       <div class="min-w-0 flex-1"><div class="truncate text-sm font-bold">${esc(c.front)}</div><div class="truncate text-xs text-slate-400">${esc(c.back)}</div></div>
-      <button data-del-card="${esc(c.id)}" class="rounded-lg px-2 text-lg leading-none text-slate-300 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/10" aria-label="Delete card">×</button></div>`).join("");
+      <button data-del-card="${esc(c.id)}" class="grid h-10 w-10 shrink-0 place-items-center rounded-lg text-lg leading-none text-slate-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/10" title="Move to trash (you can undo)" aria-label="Move to trash: card">×</button></div>`).join("");
   const picker = state.course === "all"
     ? `<select id="cardCourse" class="rounded-xl border border-slate-200 bg-transparent px-3 py-2 text-sm font-semibold dark:border-ink-600 dark:bg-ink-800">${state.courses.filter((c) => !c.archived && c.id !== "unsorted").map((c) => `<option value="${esc(c.id)}">${esc(c.id)} · ${esc(c.name)}</option>`).join("")}</select>`
     : "";
@@ -644,6 +644,7 @@ function renderStudyHome() {
       <button data-match-start class="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold shadow-card hover:bg-slate-50 dark:border-ink-600 dark:bg-ink-800 dark:hover:bg-ink-700">🎮 Match game</button>
       <a href="/api/study/export/anki?course=${encodeURIComponent(state.course)}" download class="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold shadow-card hover:bg-slate-50 dark:border-ink-600 dark:bg-ink-800 dark:hover:bg-ink-700" title="A text file you can import into Anki (File → Import)">⬇ Anki file</a>
       <button data-backup-now class="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold shadow-card hover:bg-slate-50 dark:border-ink-600 dark:bg-ink-800 dark:hover:bg-ink-700" title="A safety copy of your cards, history, quizzes and exams">💾 Back up my data</button>
+      <button data-trash-open class="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold shadow-card hover:bg-slate-50 dark:border-ink-600 dark:bg-ink-800 dark:hover:bg-ink-700" title="Deleted cards, questions and problems. Kept for 30 days.">🗑 Trash</button>
       <span id="studyToolMsg" class="self-center text-xs font-semibold text-slate-400"></span></div>
     <div id="genPanel">${genPanelHtml("cards")}</div>
 
@@ -873,7 +874,7 @@ function genJobHtml(job, kind = gk()) {
     ? `<details class="mt-3 rounded-xl bg-slate-50 px-4 py-3 text-xs dark:bg-ink-700"><summary class="cursor-pointer font-extrabold">${plural(dropped.length, C.one)} didn't pass the checks and ${dropped.length === 1 ? "was" : "were"} not saved</summary>
         <ul class="mt-2 space-y-1.5 font-medium text-slate-600 dark:text-slate-300">${dropped.map((d) => `<li><span class="font-bold">${esc(d.front)}</span><br><span class="text-slate-400">${esc(d.title)} · ${esc(d.why)}</span></li>`).join("")}</ul></details>`
     : "";
-  const head = !done ? `${C.headBusy} ${settled} of ${job.items.length} lectures` : job.status === "cancelled" ? "Stopped" : t.created ? `🎉 Added ${plural(t.created, "new " + C.one)}` : "Nothing new to add";
+  const head = !done ? `${C.headBusy} ${settled} of ${job.items.length} lectures` : job.status === "cancelled" ? "Stopped" : job.stoppedBecause ? (t.created ? `Added ${plural(t.created, "new " + C.one)}, then stopped` : "Stopped before anything was made") : t.created ? `🎉 Added ${plural(t.created, "new " + C.one)}` : "Nothing new to add";
   const sub = done
     ? `${plural(job.items.filter((i) => i.state === "done").length, "lecture")} processed · ${t.duplicates} duplicate${t.duplicates === 1 ? "" : "s"} skipped · ${t.dropped} dropped · ${plural(t.calls, "Claude call")}`
     : `${plural(t.created, C.one)} so far · ${plural(t.calls, "Claude call")}`;
@@ -881,6 +882,7 @@ function genJobHtml(job, kind = gk()) {
     <div class="flex items-start justify-between gap-3"><div><div class="text-lg font-extrabold">${head}</div><div class="text-xs font-semibold text-slate-500 dark:text-slate-400">${sub}</div></div>
       ${done ? "" : `<button id="genCancel" class="shrink-0 rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-bold hover:bg-slate-50 dark:border-ink-600 dark:hover:bg-ink-700">Cancel</button>`}</div>
     <div class="mt-3 h-2.5 overflow-hidden rounded-full bg-slate-100 dark:bg-ink-700"><div class="h-full rounded-full bg-brand-500 transition-all" style="width:${done ? 100 : pct}%"></div></div>
+    ${job.stoppedBecause ? `<div class="mt-3 rounded-xl bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-900 dark:bg-amber-500/10 dark:text-amber-100" role="status"><div class="font-extrabold">Stopped early: the lectures marked skipped were not tried.</div><div class="mt-1 text-xs font-medium">${esc(job.stoppedBecause)} Run it again later and only the lectures that are still missing will be done.</div></div>` : ""}
     <div class="mt-3 max-h-64 overflow-y-auto">${rows}</div>${droppedHtml}
     ${done ? `<div class="mt-4 flex gap-3">${t.created ? `<button id="genStudy" class="rounded-xl bg-brand-500 px-5 py-2.5 text-sm font-extrabold text-white hover:bg-brand-600">${C.doneBtn}</button>` : ""}
       <button id="genDismiss" class="rounded-xl border border-slate-200 px-5 py-2.5 text-sm font-bold hover:bg-slate-50 dark:border-ink-600 dark:hover:bg-ink-700">Done</button></div>` : ""}
@@ -984,7 +986,7 @@ function renderQuizHome() {
       <span class="w-16 shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-center text-[10px] font-extrabold text-slate-500 dark:bg-ink-700 dark:text-slate-300">${KIND_SHORT[q.kind]}</span>
       <div class="min-w-0 flex-1"><div class="truncate text-sm font-bold">${esc(q.stem)}</div><div class="truncate text-xs text-slate-400">${esc(q.section || "")}${state.course === "all" ? ` · ${esc(q.course)}` : ""}</div></div>
       ${q.asked ? `<span class="shrink-0 text-xs font-extrabold ${q.right === q.asked ? "text-emerald-600 dark:text-emerald-300" : q.right === 0 ? "text-red-600 dark:text-red-400" : "text-amber-600 dark:text-sun"}">${q.right}/${q.asked}</span>` : ""}
-      <button data-del-q="${esc(q.id)}" class="rounded-lg px-2 text-lg leading-none text-slate-300 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/10" aria-label="Delete question">×</button></div>`).join("");
+      <button data-del-q="${esc(q.id)}" class="grid h-10 w-10 shrink-0 place-items-center rounded-lg text-lg leading-none text-slate-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/10" title="Move to trash (you can undo)" aria-label="Move to trash: question">×</button></div>`).join("");
   $("studyBody").innerHTML = `<div class="space-y-5 fade-in">${subSwitch()}
     <div class="relative overflow-hidden rounded-3xl bg-gradient-to-br from-emerald-500 via-teal-600 to-brand-600 p-6 text-white shadow-pop md:p-8">
       <div class="absolute -top-8 -right-8 text-[9rem] leading-none opacity-10">📝</div>
@@ -1317,7 +1319,7 @@ $("studyBody").addEventListener("click", (e) => {
   const g = e.target.closest("[data-grade]");
   if (g) return rateCard(Number(g.dataset.grade));
   const del = e.target.closest("[data-del-card]");
-  if (del) return fetch(`/api/study/cards/${encodeURIComponent(del.dataset.delCard)}`, { method: "DELETE" }).then(loadStudyToday);
+  if (del) return deleteWithUndo("card", `/api/study/cards/${encodeURIComponent(del.dataset.delCard)}`);
   const open = e.target.closest("[data-open-note]");
   if (open) return openSource(open.dataset.openNote, open.dataset.quote);
   // quizzes
@@ -1331,7 +1333,7 @@ $("studyBody").addEventListener("click", (e) => {
   if (e.target.closest("#nextQ")) return nextQuizQuestion();
   if (e.target.closest("#explainBtn")) return explainMiss();
   const dq = e.target.closest("[data-del-q]");
-  if (dq) return fetch(`/api/study/quiz/questions/${encodeURIComponent(dq.dataset.delQ)}`, { method: "DELETE" }).then(loadQuizHome);
+  if (dq) return deleteWithUndo("question", `/api/study/quiz/questions/${encodeURIComponent(dq.dataset.delQ)}`);
 });
 $("studyBody").addEventListener("change", (e) => {
   const cb = e.target.closest("[data-gen-note]");

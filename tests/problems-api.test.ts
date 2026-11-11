@@ -121,7 +121,7 @@ describe("practice problems over the API", () => {
   });
 
   it("deletes a problem", async () => {
-    expect(await (await j(`/api/study/problems/${problems[0].id}`, "DELETE")).json()).toEqual({ ok: true });
+    expect(await (await j(`/api/study/problems/${problems[0].id}`, "DELETE")).json()).toMatchObject({ ok: true });
     expect((await (await j("/api/study/problems/home?course=ECON301")).json()).counts.total).toBe(2);
   });
 });

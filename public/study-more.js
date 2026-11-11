@@ -81,7 +81,7 @@ function renderProblemsHome() {
       <span class="w-20 shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-center text-[10px] font-extrabold text-slate-500 dark:bg-ink-700 dark:text-slate-300">${DIFF[p.difficulty]}</span>
       <div class="min-w-0 flex-1"><div class="truncate text-sm font-bold">${esc(p.stem)}</div><div class="truncate text-xs text-slate-400">${esc(p.section || "")}${state.course === "all" ? ` · ${esc(p.course)}` : ""}</div></div>
       ${p.asked ? `<span class="shrink-0 text-xs font-extrabold ${p.right === p.asked ? "text-emerald-600 dark:text-emerald-300" : p.right === 0 ? "text-red-600 dark:text-red-400" : "text-amber-600 dark:text-sun"}">${p.right}/${p.asked}</span>` : ""}
-      <button data-del-p="${esc(p.id)}" class="rounded-lg px-2 text-lg leading-none text-slate-300 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/10" aria-label="Delete problem">×</button></div>`).join("");
+      <button data-del-p="${esc(p.id)}" class="grid h-10 w-10 shrink-0 place-items-center rounded-lg text-lg leading-none text-slate-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/10" title="Move to trash (you can undo)" aria-label="Move to trash: problem">×</button></div>`).join("");
   $("studyBody").innerHTML = `<div class="space-y-5 fade-in">${subSwitch()}
     <div class="relative overflow-hidden rounded-3xl bg-gradient-to-br from-amber-500 via-orange-500 to-rose-500 p-6 text-white shadow-pop md:p-8">
       <div class="absolute -top-8 -right-8 text-[9rem] leading-none opacity-10">🧮</div>
@@ -729,7 +729,7 @@ $("studyBody").addEventListener("click", (e) => {
   if (hit("#checkProblem")) return submitProblem(false);
   if (hit("#giveUp")) { PRB.hinted = true; return submitProblem(true); }
   if (hit("#nextP")) return nextProblem();
-  const dp = hit("[data-del-p]"); if (dp) return api(`/api/study/problems/${encodeURIComponent(dp.dataset.delP)}`, "DELETE").then(loadProblemsHome);
+  const dp = hit("[data-del-p]"); if (dp) return deleteWithUndo("problem", `/api/study/problems/${encodeURIComponent(dp.dataset.delP)}`);
   // tutor
   const tp = hit("[data-tut-pick]"); if (tp) return pickTutorLecture(tp.dataset.tutPick);
   const tt = hit("[data-tut-topic]"); if (tt) { TUT.topicIdx = Number(tt.dataset.tutTopic); return renderTutor(); }

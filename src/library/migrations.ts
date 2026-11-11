@@ -252,4 +252,33 @@ export const MIGRATIONS: Migration[] = [
       CREATE INDEX idx_tutor_course ON tutor_sessions (course, started_at);
     `,
   },
+  {
+    version: 8,
+    name: "study: trash with undo, generation jobs that survive a restart",
+    sql: `
+      -- A deleted card, question or problem waits here (with its answer history) so it can be put back.
+      CREATE TABLE trash (
+        id         TEXT PRIMARY KEY,
+        kind       TEXT NOT NULL,                   -- card | question | problem
+        item_id    TEXT NOT NULL,                   -- the id it had, and gets back when restored
+        course     TEXT NOT NULL,
+        label      TEXT NOT NULL,                   -- the card front or question text, for the list
+        payload    TEXT NOT NULL,                   -- JSON: { row, history } exactly as they were stored
+        deleted_at INTEGER NOT NULL
+      );
+      CREATE INDEX idx_trash_deleted ON trash (deleted_at);
+      CREATE UNIQUE INDEX idx_trash_item ON trash (kind, item_id);
+
+      -- One row per generation job, rewritten as it progresses, so a restart can still say what finished.
+      CREATE TABLE gen_jobs (
+        id         TEXT PRIMARY KEY,
+        kind       TEXT NOT NULL,                   -- cards | quiz | problems
+        status     TEXT NOT NULL,                   -- running | done | cancelled | interrupted
+        started_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        state      TEXT NOT NULL                    -- JSON: the full job report shown in the app
+      );
+      CREATE INDEX idx_gen_jobs_kind ON gen_jobs (kind, started_at);
+    `,
+  },
 ];
