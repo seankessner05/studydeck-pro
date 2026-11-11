@@ -6,13 +6,8 @@
   <title>StudyDeck</title>
   <link rel="icon" href="/logo.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="/app.css" />
-  <script>
-    // Apply the saved or system theme before first paint to avoid a flash.
-    try {
-      const t = localStorage.getItem("theme");
-      if (t === "dark" || (!t && matchMedia("(prefers-color-scheme: dark)").matches)) document.documentElement.classList.add("dark");
-    } catch {}
-  </script>
+  <!-- Kept as a file (not inline) so the content policy can forbid inline scripts. It runs before first paint. -->
+  <script src="/theme.js"></script>
 </head>
 <body class="h-dvh overflow-hidden bg-paper font-sans text-ink-900 antialiased dark:bg-ink-900 dark:text-slate-100">
   <div class="flex h-full">

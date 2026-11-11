@@ -32,6 +32,7 @@ import { CardGenerationJobs, ProblemGenerationJobs, QuestionGenerationJobs } fro
 import { recordUsage, usageSummary } from "./study/usage.js";
 import { runDoctor, type DoctorDeps } from "./doctor.js";
 import { DATA_DIR } from "./paths.js";
+import { localGuard } from "./security.js";
 import { GranolaConnection, GranolaError, NotConnectedError, type GranolaService } from "./granola/api.js";
 import { runDirectSync } from "./granola/sync.js";
 
@@ -96,6 +97,9 @@ export function createApp(deps: AppDeps) {
   }
   // Called by main() on a timer; quiet when Granola isn't connected or a sync is already running.
   app.locals.autoSync = (redirect: string) => (granola.isConnected() ? performSync(redirect).catch(() => undefined) : Promise.resolve(undefined));
+  app.disable("x-powered-by");
+  // First in line: refuse anything that didn't come from this app's own pages (see src/security.ts).
+  app.use(localGuard());
   app.use(express.json({ limit: "1mb" }));
   app.use(express.static(path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "public")));
 
@@ -783,7 +787,8 @@ export function createApp(deps: AppDeps) {
       res.status(ok ? 200 : 400).type("html").send(
         `<!doctype html><meta charset="utf-8"><title>StudyDeck</title><body style="font:16px system-ui;display:grid;place-items:center;height:100vh;margin:0;background:#f8fafc;color:#1e293b">` +
           `<div style="text-align:center"><div style="font-size:48px">${ok ? "✅" : "😕"}</div><h2>${text}</h2><p>You can close this tab and go back to StudyDeck.</p></div>` +
-          (ok ? `<script>setTimeout(() => window.close(), 1500)</script>` : ""),
+          // A file, not an inline script: the content policy only runs scripts served by the app itself.
+          (ok ? `<script src="/close-tab.js"></script>` : ""),
       );
     if (req.query.error) return page(false, "Granola sign-in was cancelled");
     try {
