@@ -931,6 +931,16 @@ async function pollGeneration(kind) {
 }
 
 /** After a reload or a tab switch: pick up a job that is still running on the server. */
+/** True if this job's report was already shown after a restart (remembered in this browser). Marks it as shown. */
+function genReportSeen(id) {
+  try {
+    const seen = JSON.parse(localStorage.getItem("gen-reports-seen") || "[]");
+    if (seen.includes(id)) return true;
+    localStorage.setItem("gen-reports-seen", JSON.stringify([...seen, id].slice(-30)));
+  } catch {}
+  return false;
+}
+
 async function resumeGeneration() {
   for (const kind of ["cards", "quiz", "problems"]) {
     const C = GEN_CFG[kind];
@@ -938,6 +948,8 @@ async function resumeGeneration() {
     try {
       const r = await fetch(`${C.base}/status`).then((x) => x.json());
       if (r.running && r.job) { C.st().job = r.job; updateGenPanel(kind); pollGeneration(kind); }
+      // A job that was cut off by a restart: show its report once, so you know what finished and what didn't.
+      else if (r.job && r.job.status === "interrupted" && !genReportSeen(r.job.id)) { C.st().job = r.job; updateGenPanel(kind); }
     } catch {}
   }
 }

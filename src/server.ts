@@ -416,7 +416,7 @@ export function createApp(rawDeps: AppDeps) {
     }));
 
     app.get(`${g.base}/status`, studyRoute((_req, res) => {
-      res.json({ job: g.jobs.status() ?? null, running: g.jobs.isRunning() });
+      res.json({ job: g.jobs.status(sdb()) ?? null, running: g.jobs.isRunning() });
     }));
 
     app.post(`${g.base}/cancel`, studyRoute((_req, res) => {

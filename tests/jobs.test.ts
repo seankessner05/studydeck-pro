@@ -7,7 +7,7 @@ import { DEFAULT_COURSES } from "../src/courses";
 import type { Runner } from "../src/claude";
 import { closeStudyDbs, studyDb } from "../src/study/db";
 import { coverage, existingFronts, listCards } from "../src/study/cards";
-import { CardGenerationJobs, type JobStatus } from "../src/study/jobs";
+import { CardGenerationJobs, INTERRUPTED_MESSAGE, QuestionGenerationJobs, lastSavedJob, type JobStatus } from "../src/study/jobs";
 import { usageSummary } from "../src/study/usage";
 import { noteVersion } from "../src/study/cardgen";
 
@@ -192,5 +192,51 @@ describe("card generation job", () => {
     expect(job.totals).toMatchObject({ created: 0, dropped: 1 });
     expect(job.items[0].dropped[0].why).toContain("receipt quote isn't in the note");
     expect(listCards(db, "all")).toHaveLength(0);
+  });
+
+  it("keeps its report in the database, so a restart can still say what finished", async () => {
+    const dir = tmp();
+    const db = studyDb(dir);
+    const jobs = new CardGenerationJobs(fakeClaude());
+    jobs.start(startOpts(db));
+    const job = await finish(jobs);
+    expect(job.status).toBe("done");
+
+    // "restart": a brand-new job runner with nothing in memory
+    const afterRestart = new CardGenerationJobs(fakeClaude());
+    expect(afterRestart.status()).toBeUndefined();
+    const saved = afterRestart.status(db)!;
+    expect(saved).toMatchObject({ id: job.id, status: "done", totals: job.totals });
+    expect(saved.items.map((i) => i.state)).toEqual(job.items.map((i) => i.state));
+    // a different kind of job has its own report
+    expect(new QuestionGenerationJobs(fakeClaude()).status(db)).toBeUndefined();
+  });
+
+  it("reports a job that was cut off by a restart as interrupted, with the unfinished lectures marked skipped", async () => {
+    const db = studyDb(tmp());
+    const slow = new CardGenerationJobs(fakeClaude({ delayMs: 80 }));
+    slow.start(startOpts(db, sample.filter((n) => n.course === "ECON300"), { concurrency: 1 }));
+    // let the first lecture finish and the second begin, then "pull the plug": read the saved state as a new process would
+    for (let i = 0; i < 200 && (slow.status()!.items[0].state !== "done" || slow.status()!.items[1].state !== "running"); i++) await new Promise((r) => setTimeout(r, 5));
+    const cut = lastSavedJob(db, "cards")!;
+    expect(cut.status).toBe("interrupted");
+    expect(cut.stoppedBecause).toBe(INTERRUPTED_MESSAGE);
+    expect(cut.items.map((i) => i.state)).toEqual(["done", "skipped", "skipped"]);
+    expect(cut.items[0].created).toBe(2);
+    // the first lecture's cards really were saved
+    expect(listCards(db, "ECON300").length).toBe(2);
+    slow.cancel();
+    await finish(slow);
+  });
+
+  it("saves a cancel and an early stop too", async () => {
+    const db = studyDb(tmp());
+    const jobs = new CardGenerationJobs(fakeClaude({ fail: () => new Error("You've hit your limit · resets 3pm") }));
+    jobs.start(startOpts(db, sample.filter((n) => n.course === "ECON300"), { concurrency: 1 }));
+    await finish(jobs);
+    const saved = new CardGenerationJobs(fakeClaude()).status(db)!;
+    expect(saved.status).toBe("done");
+    expect(saved.stoppedBecause).toContain("usage limit");
+    expect(saved.items.map((i) => i.state)).toEqual(["error", "skipped", "skipped"]);
   });
 });

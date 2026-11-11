@@ -34,7 +34,8 @@ export interface JobStatus {
   id: string;
   course: string;
   density: Density;
-  status: "running" | "done" | "cancelled";
+  /** "interrupted": StudyDeck was closed or restarted while the job was running. */
+  status: "running" | "done" | "cancelled" | "interrupted";
   startedAt: number;
   finishedAt?: number;
   items: JobItem[];
@@ -57,6 +58,52 @@ export interface StartOptions {
 /** Failures where asking again for the next lecture cannot work: not signed in, CLI missing, or the plan's usage limit. */
 const STOPS_THE_JOB = new Set(["login", "missing", "limit"]);
 
+export type JobKind = "cards" | "quiz" | "problems";
+
+/** How many finished job reports to keep per kind. */
+const KEEP_JOBS = 20;
+
+export const INTERRUPTED_MESSAGE =
+  "StudyDeck was closed or restarted while this was running. Every lecture marked done was saved; the ones marked skipped were not finished.";
+
+/** Write the job report to the database, so it outlives the server. Never allowed to break the job itself. */
+function saveJob(db: Db, kind: JobKind, job: JobStatus) {
+  try {
+    db.prepare("INSERT INTO gen_jobs (id, kind, status, started_at, updated_at, state) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO UPDATE SET status = excluded.status, updated_at = excluded.updated_at, state = excluded.state")
+      .run(job.id, kind, job.status, job.startedAt, Date.now(), JSON.stringify(job));
+  } catch {
+    // e.g. the database was just replaced by a restore: the job carries on in memory
+  }
+}
+
+/**
+ * The most recent saved job of this kind. A job still marked "running" with no live job behind it was cut off
+ * by a restart: it is closed off as "interrupted", with its unfinished lectures marked skipped.
+ */
+export function lastSavedJob(db: Db, kind: JobKind): JobStatus | undefined {
+  let row: { state: string } | undefined;
+  try {
+    row = db.prepare("SELECT state FROM gen_jobs WHERE kind = ? ORDER BY started_at DESC LIMIT 1").get(kind) as { state: string } | undefined;
+  } catch {
+    return undefined;
+  }
+  if (!row) return undefined;
+  let job: JobStatus;
+  try {
+    job = JSON.parse(row.state);
+  } catch {
+    return undefined;
+  }
+  if (job.status === "running") {
+    job.status = "interrupted";
+    job.finishedAt = Date.now();
+    job.stoppedBecause = INTERRUPTED_MESSAGE;
+    for (const item of job.items) if (item.state === "queued" || item.state === "running") item.state = "skipped";
+    saveJob(db, kind, job);
+  }
+  return job;
+}
+
 /** What processing one lecture produced. */
 export interface Outcome {
   created: number;
@@ -74,6 +121,8 @@ export interface Outcome {
 abstract class LectureJobs {
   private job?: JobStatus;
   private abort?: AbortController;
+  /** The database of the job in memory, for saving its report as it goes. */
+  private db?: Db;
   /** True until every worker has stopped, even after a cancel, so a new job can't overlap a winding-down one. */
   private active = false;
 
@@ -83,12 +132,19 @@ abstract class LectureJobs {
     private readonly awake: () => () => void = keepAwake,
   ) {}
 
+  /** Which bank this job fills; also the label its report is saved under. */
+  protected abstract readonly kind: JobKind;
   /** Shown when a second job is started: "A card generation job is already running." */
   protected abstract readonly busyMessage: string;
   protected abstract process(note: Note, o: StartOptions, signal: AbortSignal): Promise<Outcome>;
 
-  status(): JobStatus | undefined {
-    return this.job;
+  /**
+   * The job running now, or the last one. After a restart nothing is in memory, so pass the database to get the
+   * saved report back (an unfinished one comes back as "interrupted").
+   */
+  status(db?: Db): JobStatus | undefined {
+    if (this.job) return this.job;
+    return db ? lastSavedJob(db, this.kind) : undefined;
   }
 
   isRunning(): boolean {
@@ -99,6 +155,7 @@ abstract class LectureJobs {
     if (!this.active || this.job?.status !== "running") return false;
     this.job.status = "cancelled";
     this.abort?.abort();
+    if (this.db) saveJob(this.db, this.kind, this.job);
     return true;
   }
 
@@ -115,7 +172,14 @@ abstract class LectureJobs {
       totals: { created: 0, duplicates: 0, dropped: 0, calls: 0, costUsd: 0 },
     };
     this.job = job;
+    this.db = o.db;
     this.active = true;
+    saveJob(o.db, this.kind, job);
+    try {
+      o.db.prepare("DELETE FROM gen_jobs WHERE kind = ? AND id NOT IN (SELECT id FROM gen_jobs WHERE kind = ? ORDER BY started_at DESC LIMIT ?)").run(this.kind, this.kind, KEEP_JOBS);
+    } catch {
+      // tidying old reports is optional
+    }
     const release = this.awake();
     this.abort = new AbortController();
     void this.run(job, notes, o, this.abort.signal).finally(release);
@@ -133,6 +197,7 @@ abstract class LectureJobs {
         const item = job.items[i];
         item.state = "running";
         item.startedAt = Date.now();
+        saveJob(o.db, this.kind, job);
         try {
           const out = await this.process(note, o, signal);
           item.created = out.created;
@@ -160,18 +225,21 @@ abstract class LectureJobs {
             job.stoppedBecause = problem.message;
           }
         }
+        saveJob(o.db, this.kind, job);
       }
     };
     await Promise.all(Array.from({ length: Math.max(1, Math.min(o.concurrency ?? 2, notes.length)) }, worker));
     for (const item of job.items) if (item.state === "queued" || item.state === "running") item.state = "skipped";
     if (job.status === "running") job.status = "done";
     job.finishedAt = Date.now();
+    saveJob(o.db, this.kind, job);
     this.active = false;
   }
 }
 
 /** Flashcards from lectures. */
 export class CardGenerationJobs extends LectureJobs {
+  protected readonly kind = "cards" as const;
   protected readonly busyMessage = "A card generation job is already running.";
 
   protected async process(note: Note, o: StartOptions, signal: AbortSignal): Promise<Outcome> {
@@ -199,6 +267,7 @@ export class CardGenerationJobs extends LectureJobs {
 
 /** Quiz questions from lectures: written, then double-checked by a blind second solve, then saved. */
 export class QuestionGenerationJobs extends LectureJobs {
+  protected readonly kind = "quiz" as const;
   protected readonly busyMessage = "A quiz-question generation job is already running.";
 
   protected async process(note: Note, o: StartOptions, signal: AbortSignal): Promise<Outcome> {
@@ -229,6 +298,7 @@ export class QuestionGenerationJobs extends LectureJobs {
 
 /** Numerical practice problems: written as small programs, computed by the app, then solved blind by a second Claude call. */
 export class ProblemGenerationJobs extends LectureJobs {
+  protected readonly kind = "problems" as const;
   protected readonly busyMessage = "A practice-problem generation job is already running.";
 
   protected async process(note: Note, o: StartOptions, signal: AbortSignal): Promise<Outcome> {
