@@ -51,7 +51,7 @@ test.describe("the five things that must always work", () => {
     let answered = 0;
     // the results screen has no options and no "next" button
     for (let i = 0; i < 40 && (await page.locator("#studyBody [data-opt], #nextQ").count()); i++) {
-      if (await page.locator("#nextQ").isVisible()) { await page.locator("#nextQ").click(); await page.waitForTimeout(100); continue; }
+      if (await page.locator("#nextQ").isVisible()) { await page.locator("#nextQ").click(); await page.waitForFunction(() => !document.querySelector("#nextQ")); continue; }
       await page.locator("#studyBody [data-opt]").first().click();
       if (await page.locator("#checkAnswer").isVisible()) await page.locator("#checkAnswer").click();
       await expect(page.locator("#nextQ")).toBeVisible();
@@ -164,15 +164,20 @@ test.describe("text typed into the app can never run as code", () => {
     await page.locator("#startStudy").click();
     await expect(page.locator("#revealBtn")).toBeVisible();
     let cards = 0;
+    let sawHostileCard = false;
     for (let i = 0; i < 12 && (await page.locator("#revealBtn").isVisible()); i++) {
       await page.locator("#revealBtn").click();
       await expect(page.locator("[data-grade]")).toHaveCount(4);
+      sawHostileCard ||= (await page.locator("#studyBody").innerText()).includes("Hostile card");
       await expectNothingRan(page, `card ${i} answer`);
       await page.locator('[data-grade="4"]').click();
-      await page.waitForTimeout(200);
+      // Wait for what comes next (the next card, or the end of the session) instead of a fixed pause,
+      // which was too short on a slower machine.
+      await page.waitForFunction(() => !!document.querySelector("#revealBtn") || !document.querySelector("[data-grade]"));
       cards++;
     }
     expect(cards).toBeGreaterThan(1);
+    expect(sawHostileCard).toBe(true);
     await expectNothingRan(page, "after the card session");
 
     // every question with its feedback
@@ -183,7 +188,7 @@ test.describe("text typed into the app can never run as code", () => {
     await expect(page.locator("#exitQuiz")).toBeVisible();
     let sawHostileQuestion = false;
     for (let i = 0; i < 60 && (await page.locator("#studyBody [data-opt], #nextQ").count()); i++) {
-      if (await page.locator("#nextQ").isVisible()) { await page.locator("#nextQ").click(); await page.waitForTimeout(100); continue; }
+      if (await page.locator("#nextQ").isVisible()) { await page.locator("#nextQ").click(); await page.waitForFunction(() => !document.querySelector("#nextQ")); continue; }
       sawHostileQuestion ||= (await page.locator("#studyBody").innerText()).includes("Hostile question");
       await page.locator("#studyBody [data-opt]").last().click();
       if (await page.locator("#checkAnswer").isVisible()) await page.locator("#checkAnswer").click();
@@ -206,13 +211,15 @@ test.describe("text typed into the app can never run as code", () => {
       await expect(page.locator("#nextP")).toBeVisible();
       await expectNothingRan(page, `problem solution ${i}`);
       await page.locator("#nextP").click();
-      await page.waitForTimeout(150);
+      // the next problem, or the end of the practice set
+      await page.waitForFunction(() => !!document.querySelector("#giveUp") || !document.querySelector("#nextP"));
     }
     expect(sawHostileProblem).toBe(true);
 
     for (const sub of ["tutor", "exam", "progress"]) {
       await openStudy(page, sub);
-      await page.waitForTimeout(400);
+      // wait until the screen has loaded (the loading dots are gone), so the check below looks at real content
+      await page.waitForFunction(() => !document.querySelector("#studyBody .dots") && document.querySelector("#studyBody")!.textContent!.length > 200);
       await expectNothingRan(page, sub);
     }
     await expect(page.locator("#studyBody")).toContainText("Hostile");
