@@ -73,7 +73,7 @@ export const longestSharedRun = (a: string, b: string): number => sharedRun(a, b
 
 // Exam instructions a professor repeats on every exam ("show your work", "describe it in words for partial credit").
 // Reusing those is following his format, not copying his questions.
-const INSTRUCTION = /partial credit|show your work|show (?:all )?(?:of )?your work|label (?:your|the) graph|(?:which|what) curves? (?:is |are )?shift|explain (?:intuitively|in your own words)|in your own words|no calculations? (?:are |is )?needed|no explanation (?:is )?needed|if you (?:couldn'?t|can'?t|could not|cannot)|make up an?\b|do not (?:simply|spend)|anything reasonable|you will need to use calculus|answered entirely in words|please (?:discuss|explain|show|calculate|label|answer)|use your time efficiently|points? (?:total|each)|\(\d+ points?\)/i;
+const INSTRUCTION = /partial credit|show your work|show (?:all )?(?:of )?your work|label (?:your|the) graph|(?:which|what) curves? (?:is |are )?shift|explain (?:intuitively|in your own words)|in your own words|no calculations? (?:are |is )?needed|no explanation (?:is )?needed|if you (?:couldn'?t|can'?t|could not|cannot)|make up an?\b|do not (?:simply|spend)|anything reasonable|you will need to use calculus|answered entirely in words|please (?:discuss|explain|show|calculate|label|answer)|use your time efficiently|points? (?:total|each)|\(\d+ points?\)|^\s*(?:note|hint)\b|more straightforward to analy[sz]e/i;
 
 /** The text with exam-instruction sentences taken out, so only the content is compared. */
 export function withoutInstructions(text: string): string {

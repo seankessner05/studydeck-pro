@@ -165,7 +165,7 @@ export function examText(questions: ExamQuestion[]): string {
     .map((q) => {
       const head = `Question ${q.id} (${q.points} points)${q.setup ? `\n${q.setup}` : ""}`;
       const parts = q.parts.map((p) => {
-        if (p.kind === "graph") return `  [${p.id}] (${p.points} points) ${p.prompt}\n    For the ${p.graph} graph, say how each curve moves (${p.curves.map((c) => `${c.name}: ${c.choices.join("/")}`).join("; ")}) and what happens to ${p.effects.map((e) => e.name).join(", ")} (up/down/same).`;
+        if (p.kind === "graph") return `  [${p.id}] (${p.points} points) ${p.prompt}\n    For the ${p.graph} graph, say how each curve moves (${p.curves.map((c) => `"${c.name}": ${c.choices.join("/")}`).join("; ")}) and what happens to ${p.effects.map((e) => `"${e.name}"`).join(", ")} (up/down/same). Use these names exactly.`;
         return `  [${p.id}] (${p.points} points) ${p.prompt}${p.kind === "number" && p.unit ? ` (answer in ${p.unit})` : ""}`;
       });
       return `${head}\n${parts.join("\n")}`;
@@ -217,6 +217,25 @@ const withoutPoints = (t: string) => t.replace(/^\(\s*\d+(?:\.\d+)?\s*points?(?:
 function pastExamNumbers(examples: string): Set<number> {
   const flat = examples.replace(/(\d),(?=\d{3}\b)/g, "$1");
   return new Set((flat.match(/\d+(?:\.\d+)?/g) ?? []).map(Number).filter((n) => !(Number.isInteger(n) && n < 10) && ![0.25, 0.5, 0.75].includes(n)));
+}
+
+/** A given is written in the text as a number, a percent, a fraction ("k^(1/2)") or, for 0.5, a square root. */
+export function givenInText(value: number, text: string): boolean {
+  if (numberInText(value, text)) return true;
+  for (const m of text.matchAll(/(\d+)\s*\/\s*(\d+)/g)) if (Number(m[2]) !== 0 && Math.abs(Number(m[1]) / Number(m[2]) - Math.abs(value)) < 1e-9) return true;
+  return Math.abs(value) === 0.5 && /√|sqrt|square root/i.test(text);
+}
+
+/** "Output Y", "output", "real interest rate (R)" → "output", "output", "real interest rate": names match loosely. */
+const nameKey = (s: string) => s.toLowerCase().replace(/\([^)]*\)/g, " ").replace(/[^a-z0-9]+/g, " ").trim();
+function lookup(answers: Record<string, unknown>, name: string): unknown {
+  if (name in answers) return answers[name];
+  const want = nameKey(name);
+  const hits = Object.entries(answers).filter(([k]) => {
+    const got = nameKey(k);
+    return got === want || (got.length >= 3 && (want.startsWith(`${got} `) || got.startsWith(`${want} `)));
+  });
+  return hits.length === 1 ? hits[0][1] : undefined;
 }
 
 /** Check one question Claude wrote against its blueprint slot. Returns the question with every number computed by the app. */
@@ -312,13 +331,17 @@ export function validateExamQuestion(raw: unknown, b: Blueprint, notes: Note[]):
   if (Math.abs(parts.reduce((n, p) => n + p.points, 0) - slot.points) > 1e-9) return reject("points", `${parts.reduce((n, p) => n + p.points, 0)} of ${slot.points}`);
   const unseen = unseenReference(allText);
   if (unseen) return reject("not_self_contained", unseen);
-  // Content only: the professor's standard instructions ("describe it in words for partial credit") are his format.
-  const run = sharedRun(withoutInstructions(allText), withoutInstructions(b.examples));
-  if (run.length > 9) return reject("copies_past_exam", `“${run.words}”`);
+  // The scenario must be new; the professor's way of asking ("Does this fit your answer to part (a)?", "Stage 1, 2 and 3",
+  // "describe it in words for partial credit") is his format and may be reused. Only a near-wholesale copy of a whole
+  // question is rejected outside the setup.
+  const scenario = sharedRun(withoutInstructions(setup), withoutInstructions(b.examples));
+  if (scenario.length > 9) return reject("copies_past_exam", `“${scenario.words}”`);
+  const whole = sharedRun(allText, b.examples);
+  if (whole.length > 25) return reject("copies_past_exam", `“${whole.words.split(" ").slice(0, 12).join(" ")}…”`);
   const past = pastExamNumbers(b.examples);
   const own = givens.map((g) => g.value).filter((v) => !(Number.isInteger(v) && Math.abs(v) < 10) && ![0.25, 0.5, 0.75].includes(Math.abs(v)));
   if (own.length >= 3 && own.filter((v) => past.has(Math.abs(v))).length / own.length >= 0.6) return reject("copies_past_exam", "same numbers");
-  for (const g of givens) if (!numberInText(g.value, allText)) return reject("given_not_in_text", `${g.label || g.name} = ${g.value}`);
+  for (const g of givens) if (!givenInText(g.value, allText)) return reject("given_not_in_text", `${g.label || g.name} = ${g.value}`);
 
   return { question: { id, section, number, points: slot.points, setup, givens, parts } };
 }
@@ -346,7 +369,7 @@ export function checkSolve(questions: ExamQuestion[], solved: unknown[]): Map<st
         const curves = (r.curves && typeof r.curves === "object" ? r.curves : {}) as Record<string, unknown>;
         const effects = (r.effects && typeof r.effects === "object" ? r.effects : {}) as Record<string, unknown>;
         const same = (a: unknown, b: string) => typeof a === "string" && a.trim().toLowerCase() === b;
-        if (!p.curves.every((c) => same(curves[c.name], c.key)) || !p.effects.every((e) => same(effects[e.name], e.key))) { verdict = "solve_disagrees"; break; }
+        if (!p.curves.every((c) => same(lookup(curves, c.name), c.key)) || !p.effects.every((e) => same(lookup(effects, e.name), e.key))) { verdict = "solve_disagrees"; break; }
       }
     }
     out.set(q.id, verdict);

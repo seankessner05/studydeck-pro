@@ -110,7 +110,7 @@ describe("the second solve without notes", () => {
     const { system, prompt } = buildExamSolverPrompts("Macroeconomics", examOf().questions);
     expect(system).toContain("You have not seen any answer key");
     expect(prompt).toContain("[1.1.a]");
-    expect(prompt).toContain("IS: right/left/none");
+    expect(prompt).toContain("\"IS\": right/left/none");
     expect(prompt).not.toContain("Households save part of a tax cut"); // a rubric/quote
     expect(prompt).not.toContain("Divide by 1 - MPC"); // a step explanation
     expect(prompt).not.toContain(note.body);
