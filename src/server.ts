@@ -33,6 +33,9 @@ import { recordUsage, usageSummary } from "./study/usage.js";
 import { runDoctor, type DoctorDeps } from "./doctor.js";
 import { DATA_DIR } from "./paths.js";
 import { localGuard } from "./security.js";
+import { ExamBuildError, StyledError, applyStyledWritten, blueprintPoints, buildStyledExam, createStyledSitting, getStyled, listStyled, loadBlueprint, pendingStyledWritten, submitStyled } from "./study/styled.js";
+import { keepAwake } from "./study/awake.js";
+import { auditQuestion } from "./study/standalone.js";
 import { TRASH_DAYS, TrashError, emptyOldTrash, listTrash, moveToTrash, purgeTrash, restoreFromTrash, type TrashKind } from "./study/trash.js";
 import { GranolaConnection, GranolaError, NotConnectedError, type GranolaService } from "./granola/api.js";
 import { runDirectSync } from "./granola/sync.js";
@@ -276,7 +279,7 @@ export function createApp(rawDeps: AppDeps) {
     try {
       await fn(req, res);
     } catch (e) {
-      if (e instanceof CardError || e instanceof QuizError || e instanceof ExamError || e instanceof TrashError || e instanceof RestoreError) return void res.status(400).json({ error: e.message });
+      if (e instanceof CardError || e instanceof QuizError || e instanceof ExamError || e instanceof TrashError || e instanceof RestoreError || e instanceof StyledError) return void res.status(400).json({ error: e.message });
       // Claude said no (usage limit, not signed in, too slow): say so in plain words instead of a bare server error.
       if (e instanceof ClaudeError) return void res.status(e.kind === "limit" ? 429 : 503).json({ error: e.message, kind: e.kind });
       res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
@@ -433,6 +436,24 @@ export function createApp(rawDeps: AppDeps) {
     res.json({ counts: quizCounts(db, course), accuracy: quizAccuracy(db, course), streak: streakNow(), questions: listQuestions(db, course, 300).map((q) => ({ id: q.id, course: q.course, noteId: q.noteId, section: q.section, kind: q.kind, stem: q.stem, asked: q.asked, right: q.right })) });
   }));
 
+  /**
+   * Questions made under the old rules can lean on a graph from class or just restate a sentence of the notes.
+   * dryRun lists them; otherwise they move to the trash (undo for 30 days), and their lectures are listed for remaking.
+   */
+  app.post("/api/study/quiz/audit", studyRoute((req, res) => {
+    const course = scopeOf(req.body?.course);
+    if (!course) return res.status(404).json({ error: "Unknown class" });
+    const cur = current();
+    const bodies = new Map(loadNotes(course, cur.dir, activeIdsOf(cur.courses)).map((n) => [n.id, n.body]));
+    const failing = listQuestions(sdb(), course, 5000)
+      .map((q) => ({ q, why: auditQuestion(q, q.noteId ? bodies.get(q.noteId) : undefined) }))
+      .filter((x): x is { q: (typeof x)["q"]; why: string } => !!x.why);
+    const lectures = [...new Set(failing.map((x) => x.q.noteId).filter((id): id is string => !!id))];
+    if (req.body?.dryRun !== false) return res.json({ count: failing.length, lectures, examples: failing.slice(0, 5).map((x) => ({ stem: x.q.stem, why: x.why })) });
+    for (const { q } of failing) moveToTrash(sdb(), "question", q.id);
+    res.json({ moved: failing.length, lectures });
+  }));
+
   app.post("/api/study/quiz/start", studyRoute((req, res) => {
     const b = req.body ?? {};
     const course = scopeOf(b.course);
@@ -564,6 +585,79 @@ export function createApp(rawDeps: AppDeps) {
     const created = createSitting(db, { course, name, examId, noteIds, preset, written });
     if (created.shortfall.mcq || created.shortfall.problems) warnings.push(`Your bank had fewer than a full ${PRESETS[preset].label.toLowerCase()} exam asks for (${created.items.filter((i) => i.type === "mcq").length} multiple-choice, ${created.items.filter((i) => i.type === "problem").length} problems). Make more questions for these lectures for a fuller exam.`);
     res.json({ ...created, warnings });
+  }));
+
+  // ---- study: mock exams in the professor's own format, with brand-new questions ----
+  type StyledJob = { id: string; course: string; state: "running" | "done" | "error"; step: string; startedAt: number; sittingId?: string; error?: string; warnings: string[] };
+  const styledJobs = new Map<string, StyledJob>();
+  const styledRunning = () => [...styledJobs.values()].some((j) => j.state === "running");
+
+  app.get("/api/study/styled/blueprint", studyRoute((req, res) => {
+    const course = String(req.query.course ?? "");
+    const b = loadBlueprint(deps.dataDir, course);
+    res.json(b ? { course, name: b.name, minutes: b.minutes, points: blueprintPoints(b), sections: b.sections.map((x) => ({ title: x.title, points: x.points, questions: x.questions.length, choose: x.choose ?? null })) } : null);
+  }));
+
+  app.post("/api/study/styled/build", studyRoute((req, res) => {
+    if (paused()) return res.status(409).json({ error: "AI is paused, so a new exam can't be written. Resume it in the sidebar." });
+    if (styledRunning()) return res.status(409).json({ error: "An exam is already being written. It takes a few minutes; this one will be ready soon." });
+    const exam = getExam(sdb(), String(req.body?.examId ?? ""));
+    if (!exam) return res.status(404).json({ error: "That exam isn't on your list any more." });
+    const blueprint = loadBlueprint(deps.dataDir, exam.course);
+    if (!blueprint) return res.status(400).json({ error: "There's no exam format for this class yet." });
+    const cur = current();
+    const ids = new Set(inScope(exam, noteRefs(exam.course)).map((n) => n.id));
+    const notes = loadNotes(exam.course, cur.dir, activeIdsOf(cur.courses)).filter((n) => ids.has(n.id));
+    if (!notes.length) return res.status(400).json({ error: "This exam covers no lectures yet, so there's nothing to write questions from." });
+    const job: StyledJob = { id: randomUUID(), course: exam.course, state: "running", step: "Starting", startedAt: Date.now(), warnings: [] };
+    styledJobs.set(job.id, job);
+    const release = keepAwake();
+    const courseName = cur.courses.find((c) => c.id === exam.course)?.name ?? exam.course;
+    void buildStyledExam({ runner: deps.runner, blueprint, notes, courseName, title: `${exam.name} mock`, onProgress: (step) => (job.step = step) })
+      .then((r) => {
+        recordUsage(sdb(), "exam", r.calls, r.costUsd);
+        job.sittingId = createStyledSitting(sdb(), { course: exam.course, examId: exam.id, exam: r.exam });
+        if (r.missing.length) job.warnings.push(`${r.missing.length} question${r.missing.length === 1 ? "" : "s"} didn't pass the checks twice, so this exam is shorter than the real one (${r.exam.questions.reduce((n, q) => n + q.points, 0)} of ${blueprintPoints(blueprint)} points).`);
+        job.state = "done";
+      })
+      .catch((e) => {
+        if (e instanceof ExamBuildError) recordUsage(sdb(), "exam", e.calls, e.costUsd);
+        job.state = "error";
+        job.error = e instanceof ExamBuildError ? e.message : friendlyError(e);
+      })
+      .finally(release);
+    res.json({ jobId: job.id });
+  }));
+
+  app.get("/api/study/styled/build/:jobId", studyRoute((req, res) => {
+    const job = styledJobs.get(String(req.params.jobId));
+    if (!job) return res.status(404).json({ error: "That exam build isn't running any more (StudyDeck may have restarted). Start it again." });
+    res.json({ ...job, seconds: Math.round((Date.now() - job.startedAt) / 1000) });
+  }));
+
+  app.get("/api/study/styled", studyRoute((req, res) => {
+    const course = scopeOf(req.query.course);
+    if (!course) return res.status(404).json({ error: "Unknown class" });
+    res.json(listStyled(sdb(), course));
+  }));
+
+  app.get("/api/study/styled/:id", studyRoute((req, res) => {
+    res.json(getStyled(sdb(), String(req.params.id)));
+  }));
+
+  app.post("/api/study/styled/:id/submit", studyRoute((req, res) => {
+    const answers = req.body?.answers && typeof req.body.answers === "object" ? req.body.answers : {};
+    res.json({ ...submitStyled(sdb(), String(req.params.id), answers), streak: streakNow() });
+  }));
+
+  app.post("/api/study/styled/:id/grade-written", studyRoute(async (req, res) => {
+    const id = String(req.params.id);
+    const pending = pendingStyledWritten(sdb(), id);
+    if (!pending.length) return res.json(getStyled(sdb(), id));
+    if (paused()) return res.status(409).json({ error: "AI is paused, so your written answers can't be graded yet. Resume it in the sidebar and try again." });
+    const r = await gradeWritten({ runner: deps.runner, items: pending.map((p) => p.input) });
+    recordUsage(sdb(), "exam", r.calls, r.costUsd);
+    res.json(applyStyledWritten(sdb(), id, pending, r.grades));
   }));
 
   app.get("/api/study/exam/history", studyRoute((req, res) => {

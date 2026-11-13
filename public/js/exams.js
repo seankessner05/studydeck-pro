@@ -2,6 +2,7 @@ import { $, S, api, barOf, btnGhost, btnPrimary, courseName, esc, fmtNum, fmtUni
 import { loadStudyToday } from "./cards.js";
 import { KIND_LABEL, LETTER, subSwitch } from "./quiz.js";
 import { refreshAi } from "./panels.js";
+import { loadRealExamInfo, realExamActive, realExamCardHtml, renderRealExam } from "./realexam.js";
 
 // =============================================================== exams and cheat sheets
 export const EXM = { mode: "home", exams: [], history: [], sheets: [], form: { open: false, error: "", course: "", name: "Exam 2", date: "", from: "", to: "" }, preset: "standard", sitting: null, answers: {}, remaining: 0, timer: null, results: null, grading: false, error: "", warnings: [], sheet: null, busy: false, remarkFor: null, remarkText: "", remarkMsg: "" };
@@ -13,10 +14,12 @@ export async function loadExamHome() {
   EXM.exams = e.ok ? e.data : [];
   EXM.history = h.ok ? h.data : [];
   EXM.sheets = s.ok ? s.data : [];
-  if (state.view === "study" && S.sub === "exam" && EXM.mode === "home") renderExam();
+  await loadRealExamInfo(EXM.exams);
+  if (state.view === "study" && S.sub === "exam" && EXM.mode === "home" && !realExamActive()) renderExam();
 }
 
 export function renderExam() {
+  if (realExamActive()) return renderRealExam();
   if (EXM.mode === "building") return renderExamBuilding();
   if (EXM.mode === "take") return renderExamTake();
   if (EXM.mode === "results") return renderExamResults();
@@ -44,6 +47,7 @@ export function renderExamHome() {
       <div class="flex flex-wrap items-center gap-2"><span class="text-lg font-extrabold">${esc(e.name)}</span><span class="rounded-full px-2 py-0.5 text-[10px] font-extrabold ${palette(e.course).tile} ${palette(e.course).text}">${esc(e.course)}</span>${dayChip(e.daysLeft)}
         <button data-ex-del="${esc(e.id)}" class="ml-auto rounded-lg px-2 text-lg leading-none text-slate-300 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/10" aria-label="Remove exam">×</button></div>
       <div class="text-xs font-semibold text-slate-500 dark:text-slate-400">${new Date(e.dateMs).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })} · covers ${plural(e.lectures, "lecture")} from ${esc(e.from)}${e.to ? ` through ${esc(e.to)}` : ""}</div>
+      ${realExamCardHtml(e)}
       <div class="flex flex-wrap gap-2"><button data-ex-start="${esc(e.id)}" class="${btnPrimary}">🎯 Mock exam</button><button data-sheet-make="onepage" data-exam="${esc(e.id)}" class="${btnGhost}">📄 One-page cheat sheet</button><button data-sheet-make="guide" data-exam="${esc(e.id)}" class="${btnGhost}">📚 Study guide</button></div>
       ${sheetsFor(e.id).length ? `<div class="flex flex-wrap gap-2 text-xs">${sheetsFor(e.id).map((s) => `<button data-sheet-open="${esc(s.id)}" class="rounded-full bg-slate-100 px-3 py-1 font-bold text-slate-600 hover:bg-slate-200 dark:bg-ink-700 dark:text-slate-300">${s.kind === "onepage" ? "Cheat sheet" : "Study guide"} v${s.version} · ${s.cards} cards</button>`).join("")}</div>` : ""}
     </div>`).join("");

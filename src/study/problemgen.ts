@@ -111,9 +111,13 @@ export function compute(expr: string, scope: Record<string, number>): { value: n
   }
 }
 
-/** Is a student's (or the second solver's) answer close enough: within 1%, or half a cent for small answers. */
+/**
+ * Is a student's (or the second solver's) answer close enough: within 1%. An answer of 0 allows half a cent either way.
+ * (Half a cent used to be allowed for every answer, which let 0.07 pass for a rate of 0.075: a 7% error.)
+ */
 export function numbersClose(got: number, want: number): boolean {
-  return Math.abs(got - want) <= Math.max(0.01 * Math.abs(want), 0.005);
+  if (want === 0) return Math.abs(got) <= 0.005;
+  return Math.abs(got - want) <= 0.01 * Math.abs(want) + 1e-12;
 }
 
 /** "$1,250", "25%", " 3.5 " → a number. Anything else → undefined. */

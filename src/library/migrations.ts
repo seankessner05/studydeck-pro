@@ -281,4 +281,24 @@ export const MIGRATIONS: Migration[] = [
       CREATE INDEX idx_gen_jobs_kind ON gen_jobs (kind, started_at);
     `,
   },
+  {
+    version: 9,
+    name: "study: mock exams in a real exam's format",
+    sql: `
+      CREATE TABLE styled_sittings (
+        id          TEXT PRIMARY KEY,
+        course      TEXT NOT NULL,
+        exam_id     TEXT,                           -- the exam entry it practises for, if any
+        title       TEXT NOT NULL,
+        exam        TEXT NOT NULL,                  -- JSON: the whole exam with keys, steps and rubrics (never sent before hand-in)
+        answers     TEXT,                           -- JSON: what the student handed in
+        results     TEXT,                           -- JSON: per-part grades
+        started_at  INTEGER NOT NULL,
+        finished_at INTEGER,
+        earned      REAL,
+        max         REAL
+      );
+      CREATE INDEX idx_styled_course ON styled_sittings (course, started_at);
+    `,
+  },
 ];

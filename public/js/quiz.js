@@ -1,4 +1,4 @@
-import { $, Q, S, courseName, esc, palette, state } from "./core.js";
+import { $, Q, S, api, courseName, esc, palette, plural, state } from "./core.js";
 import { refreshState } from "./shell.js";
 import { loadStudyToday, renderStudy, statTile } from "./cards.js";
 import { genPanelHtml } from "./generate.js";
@@ -54,6 +54,7 @@ export function renderQuizHome() {
     </div>
     <div class="grid grid-cols-3 gap-3">${statTile("In your bank", total, "text-slate-700 dark:text-slate-200")}${statTile("Seen", h.counts.seen, "text-emerald-600 dark:text-emerald-300")}${statTile("Right first try, 7 days", acc.answers ? acc.pct + "%" : "–", "text-brand-600 dark:text-brand-300")}</div>
     <div id="genPanel">${genPanelHtml("quiz")}</div>
+    ${total ? auditPanelHtml() : ""}
     ${list ? `<details class="rounded-2xl bg-white p-3 shadow-card ring-1 ring-slate-200/70 dark:bg-ink-800 dark:ring-ink-600"><summary class="cursor-pointer px-3 py-2 text-xs font-extrabold uppercase tracking-wider text-slate-400">Your questions (${total})</summary>${list}</details>` : ""}
   </div>`;
 }
@@ -217,4 +218,36 @@ export function renderQuizDone() {
     <div class="mt-6 flex justify-center gap-3"><button id="exitQuiz" class="rounded-xl border border-slate-200 px-5 py-2.5 text-sm font-bold hover:bg-slate-50 dark:border-ink-600 dark:hover:bg-ink-700">Back to Study</button>
       <button id="startQuiz" class="rounded-xl bg-brand-500 px-5 py-2.5 text-sm font-extrabold text-white hover:bg-brand-600">Another quiz →</button></div>
     ${s.missed.length ? '<p class="mt-3 text-[11px] font-semibold text-slate-400">Questions you missed come first next time.</p>' : ""}</div>`;
+}
+// ---- checking saved questions against today's rules ----
+export const AUD = { result: null, busy: false, done: null, course: null };
+
+export function auditPanelHtml() {
+  // a result belongs to the class it was checked for
+  if (AUD.course !== state.course) { AUD.result = null; AUD.done = null; AUD.course = state.course; }
+  const r = AUD.result;
+  const body = AUD.done
+    ? `<p class="text-sm font-semibold">${AUD.done.moved ? `Moved ${plural(AUD.done.moved, "question")} to the trash (you can put any back from Cards → Trash for 30 days).` : "Nothing to move."} ${AUD.done.lectures.length ? `To replace them, pick ${plural(AUD.done.lectures.length, "lecture")} under “Choose lectures” and make new questions.` : ""}</p>`
+    : r
+      ? r.count
+        ? `<p class="text-sm font-semibold">${plural(r.count, "question")} ${r.count === 1 ? "fails" : "fail"} today's rules, from ${plural(r.lectures.length, "lecture")}:</p>
+           <ul class="mt-2 space-y-1.5 text-xs">${r.examples.map((x) => `<li><b>${esc(x.stem)}</b><br><span class="text-slate-500 dark:text-slate-400">${esc(x.why)}</span></li>`).join("")}${r.count > r.examples.length ? `<li class="text-slate-400">…and ${r.count - r.examples.length} more</li>` : ""}</ul>
+           <button data-audit-go class="mt-3 min-h-10 rounded-xl bg-brand-500 px-4 text-sm font-extrabold text-white hover:bg-brand-600" ${AUD.busy ? "disabled" : ""}>Move them to the trash</button>`
+        : `<p class="text-sm font-semibold">Every question passes today's rules.</p>`
+      : `<p class="text-xs font-medium text-slate-500 dark:text-slate-400">Older questions could lean on a graph from class (“rectangle D”) or just restate a sentence of your notes. Check them against today's rules: nothing changes until you say so.</p>
+         <button data-audit-check class="mt-3 min-h-10 rounded-xl border border-slate-200 px-4 text-sm font-bold hover:bg-slate-50 dark:border-ink-600 dark:hover:bg-ink-700" ${AUD.busy ? "disabled" : ""}>Check my questions</button>`;
+  return `<div class="rounded-2xl bg-white p-4 shadow-card ring-1 ring-slate-200/70 dark:bg-ink-800 dark:ring-ink-600" role="region" aria-label="Check saved questions"><div class="mb-1 text-xs font-extrabold uppercase tracking-wider text-slate-400">Question quality</div>${body}</div>`;
+}
+
+export function init() {
+  document.addEventListener("click", async (e) => {
+    const check = e.target.closest("[data-audit-check]");
+    const go = e.target.closest("[data-audit-go]");
+    if (!check && !go) return;
+    AUD.busy = true;
+    const r = await api("/api/study/quiz/audit", "POST", { course: state.course, dryRun: !go });
+    AUD.busy = false;
+    if (r.ok) { if (go) { AUD.done = r.data; AUD.result = null; } else { AUD.result = r.data; AUD.done = null; } }
+    loadQuizHome();
+  });
 }

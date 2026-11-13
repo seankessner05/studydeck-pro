@@ -65,6 +65,11 @@ describe("the calculator", () => {
     expect(numbersClose(102, 100)).toBe(false);
     expect(numbersClose(0.004, 0)).toBe(true);
     expect(numbersClose(0.2, 0)).toBe(false);
+    // small answers are judged by the same 1%: 0.07 is not 0.075
+    expect(numbersClose(0.07, 0.075)).toBe(false);
+    expect(numbersClose(0.0752, 0.075)).toBe(true);
+    expect(numbersClose(0.333, 1 / 3)).toBe(true);
+    expect(numbersClose(-4.95, -5)).toBe(true);
     expect([parseNumber("$1,250"), parseNumber(" 25% "), parseNumber("−3.5"), parseNumber(".5"), parseNumber(12)]).toEqual([1250, 25, -3.5, 0.5, 12]);
     expect([parseNumber("abc"), parseNumber("1 2"), parseNumber(""), parseNumber(NaN), parseNumber(null)]).toEqual([undefined, undefined, undefined, undefined, undefined]);
   });

@@ -49,23 +49,38 @@ const STOP = new Set(
 );
 const contentWords = (s: string) => normalize(s).split(" ").filter((w) => w.length > 2 && !STOP.has(w));
 
-/** The longest run of consecutive words two texts share (case and punctuation ignored). */
-export function longestSharedRun(a: string, b: string): number {
+/** The longest run of consecutive words two texts share (case and punctuation ignored), and the run itself. */
+export function sharedRun(a: string, b: string): { length: number; words: string } {
   const x = normalize(a).split(" ").filter(Boolean);
   const y = normalize(b).split(" ").filter(Boolean);
   let best = 0;
+  let end = 0;
   let prev = new Array(y.length + 1).fill(0);
   for (let i = 1; i <= x.length; i++) {
     const cur = new Array(y.length + 1).fill(0);
     for (let j = 1; j <= y.length; j++) {
       if (x[i - 1] === y[j - 1]) {
         cur[j] = prev[j - 1] + 1;
-        if (cur[j] > best) best = cur[j];
+        if (cur[j] > best) { best = cur[j]; end = i; }
       }
     }
     prev = cur;
   }
-  return best;
+  return { length: best, words: x.slice(end - best, end).join(" ") };
+}
+
+export const longestSharedRun = (a: string, b: string): number => sharedRun(a, b).length;
+
+// Exam instructions a professor repeats on every exam ("show your work", "describe it in words for partial credit").
+// Reusing those is following his format, not copying his questions.
+const INSTRUCTION = /partial credit|show your work|show (?:all )?(?:of )?your work|label (?:your|the) graph|(?:which|what) curves? (?:is |are )?shift|explain (?:intuitively|in your own words)|in your own words|no calculations? (?:are |is )?needed|no explanation (?:is )?needed|if you (?:couldn'?t|can'?t|could not|cannot)|make up an?\b|do not (?:simply|spend)|anything reasonable|you will need to use calculus|answered entirely in words|please (?:discuss|explain|show|calculate|label|answer)|use your time efficiently|points? (?:total|each)|\(\d+ points?\)/i;
+
+/** The text with exam-instruction sentences taken out, so only the content is compared. */
+export function withoutInstructions(text: string): string {
+  return text
+    .split(/(?<=[.!?])\s+|\n+/)
+    .filter((sentence) => !INSTRUCTION.test(sentence))
+    .join(" ");
 }
 
 /** Copying 8 or more words in a row from the note is a restatement, not a new question. */
@@ -87,6 +102,17 @@ export function copiesNote(stem: string, answers: string, quote: string, noteBod
     const have = new Set(contentWords(stem));
     const share = q.filter((w) => have.has(w)).length / q.length;
     if (share >= MAX_QUOTE_OVERLAP) return `rewords the note's sentence (${Math.round(share * 100)}% of its words)`;
+  }
+  return undefined;
+}
+
+/** Why a saved question fails today's rules, or undefined if it passes. Used to clean up questions made under older rules. */
+export function auditQuestion(q: { kind: string; stem: string; options: string[]; answer: number[]; explanation: string; quote: string | null }, noteBody: string | undefined): string | undefined {
+  const unseen = unseenReference(q.stem) ?? q.options.map((o) => unseenReference(o)).find(Boolean) ?? unseenReference(q.explanation, true);
+  if (unseen) return `points at something it doesn't show (“${unseen}”)`;
+  if (noteBody && q.quote) {
+    const copied = copiesNote(q.stem, q.kind === "tf" ? "" : q.answer.map((i) => q.options[i] ?? "").join(" "), q.quote, noteBody);
+    if (copied) return `copies the notes (${copied})`;
   }
   return undefined;
 }
