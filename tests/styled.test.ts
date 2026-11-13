@@ -52,7 +52,7 @@ describe("checking a written exam question", () => {
   });
 
   it("takes point labels out of the text, since the app shows each part's points itself", () => {
-    const labelled = { ...q1, setup: "(6 points total) " + q1.setup, parts: [{ ...q1.parts[0], prompt: "(4 points) " + q1.parts[0].prompt }, { ...q1.parts[1], prompt: "(3 points total) " + q1.parts[1].prompt }] };
+    const labelled = { ...q1, setup: "Question 1 (6 points). " + q1.setup, parts: [{ ...q1.parts[0], prompt: "(4 points) " + q1.parts[0].prompt }, { ...q1.parts[1], prompt: "b) explain: (3 points total for b) " + q1.parts[1].prompt }] };
     const v = validateExamQuestion(labelled, blueprint, [note]).question!;
     expect(v.setup).toBe(q1.setup);
     expect(v.parts.map((p) => p.prompt)).toEqual([q1.parts[0].prompt, q1.parts[1].prompt]);

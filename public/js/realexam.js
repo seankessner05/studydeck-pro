@@ -145,8 +145,8 @@ function questionHtml(q, results) {
   return `<article class="${panelCls} space-y-4" aria-labelledby="rxq-${esc(q.id)}">
       <div class="flex items-baseline justify-between gap-3"><h3 id="rxq-${esc(q.id)}" class="text-lg font-extrabold">Question ${q.number}</h3><span class="text-xs font-extrabold text-slate-400">${plural(q.points, "point")}${results ? ` · ${fmtNum(q.parts.reduce((n, p) => n + (results.get(p.id)?.earned ?? 0), 0))} earned` : ""}</span></div>
       ${q.setup ? `<p class="whitespace-pre-line text-[15px] font-medium leading-relaxed">${esc(q.setup)}</p>` : ""}
-      ${q.parts.map((p) => `<div class="border-t border-slate-100 pt-4 dark:border-ink-700">
-        <p class="whitespace-pre-line text-[15px] leading-relaxed"><b>(${esc(p.label)})</b> <span class="text-xs font-extrabold text-slate-400">${plural(p.points, "point")}</span> ${esc(p.prompt)}</p>
+      ${q.parts.map((p, i) => `<div class="border-t border-slate-100 pt-4 dark:border-ink-700">
+        <p class="whitespace-pre-line text-[15px] leading-relaxed"><b>(${esc(p.label)})${i > 0 && q.parts[i - 1].label === p.label ? ", continued" : ""}</b> <span class="text-xs font-extrabold text-slate-400">${plural(p.points, "point")}</span> ${esc(p.prompt)}</p>
         ${results ? partResultHtml(p, results.get(p.id)) : partInput(p)}
       </div>`).join("")}
     </article>`;

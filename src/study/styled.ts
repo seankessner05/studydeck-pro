@@ -212,7 +212,12 @@ export interface ExamRejected {
 
 const str = (v: unknown, max = 2000) => (typeof v === "string" ? v.replace(/[ \t]+/g, " ").trim().slice(0, max) : "");
 /** "(4 points) Calculate..." → "Calculate...": the app shows each part's points itself, and a split part's own label would be wrong. */
-const withoutPoints = (t: string) => t.replace(/^\(\s*\d+(?:\.\d+)?\s*points?(?:\s+total)?\s*\)\s*/i, "");
+const withoutPoints = (t: string) =>
+  t
+    .replace(/^\s*question\s+\d+\s*(?:\(\s*\d+(?:\.\d+)?\s*points?[^)]*\))?\s*[.:]?\s*/i, "") // "Question 1 (8 points)."
+    .replace(/^\s*\(?[a-h]\)\s*(?:explain|continued)?\s*[:.-]?\s*/i, "") // "a) explain:"
+    .replace(/\(\s*\d+(?:\.\d+)?\s*points?[^)]*\)\s*/gi, "") // "(4 points)", "(3 points total for b)"
+    .trim();
 
 function pastExamNumbers(examples: string): Set<number> {
   const flat = examples.replace(/(\d),(?=\d{3}\b)/g, "$1");
