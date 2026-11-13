@@ -35,7 +35,7 @@ const runner: Runner = async (o) => {
     const words = body.split(/\s+/);
     const qs = [0, 1, 2].map((k) => ({
       kind: "single",
-      stem: [`Which idea is central to ${title}?`, `What does a worked example in ${title} illustrate?`, `Why does the lecture on ${title} matter for the midterm?`][k],
+      stem: [`Which idea is central to ${title}?`, `What does a worked example in ${title} illustrate?`, `Which situation applies the ideas from ${title}?`][k],
       options: ["RIGHT", "wrong one", "wrong two", "wrong three"],
       answer: ["A"],
       explanation: "Because it is what the note says.",

@@ -23,7 +23,7 @@ const single = {
 };
 const multi = {
   kind: "multi",
-  stem: "Select all that apply: which of these make real multipliers smaller than the simple formula?",
+  stem: "Select all that apply: a country raises government spending, but GDP grows by much less than the simple multiplier predicts. Which could explain the gap?",
   options: ["Crowding out", "Imports leaking abroad", "A larger MPC", "Households who save a windfall", "Automatic stabilizers disappearing"],
   answer: ["A", "B", "D"],
   explanation: "The note lists crowding out, imports leaking abroad, and forward-looking households who save a windfall.",
@@ -31,7 +31,7 @@ const multi = {
 };
 const tf = {
   kind: "tf",
-  stem: "The tax-cut multiplier is smaller in magnitude than the spending multiplier.",
+  stem: "Given the choice between a tax cut and a spending increase of the same size, the spending increase raises GDP by more.",
   answer: true,
   explanation: "Part of a tax cut is saved first, so the tax-cut multiplier MPC / (1 − MPC) is smaller.",
   quote: "Smaller in magnitude than the spending multiplier",
@@ -80,20 +80,44 @@ describe("question gate", () => {
     expect(r.rejected[0]).toMatchObject({ reason: "quote_not_found" });
   });
 
-  it("rejects numbers the note doesn't have in the question, the right answer or the explanation, but lets wrong options be anything", () => {
+  it("lets a new situation bring its own numbers, but the answer and explanation may only use the note's or the question's", () => {
     expect(validateQuestions([{ ...single, explanation: "The multiplier is 7.5 here." }], fiscal, [], 8, noShuffle).rejected[0]).toMatchObject({ reason: "number_not_in_note", detail: "7.5" });
-    expect(validateQuestions([{ ...single, stem: "What is the multiplier when MPC = 0.95?" }], fiscal, [], 8, noShuffle).rejected[0]).toMatchObject({ reason: "number_not_in_note" });
+    // a computed answer that is in neither the note nor the question can't be checked here: it belongs to practice problems
+    expect(validateQuestions([{ ...single, stem: "What is the multiplier when MPC = 0.95?", options: ["20", "2.5", "0.8", "1.25"], explanation: "1 / (1 − 0.95)." }], fiscal, [], 8, noShuffle).rejected[0]).toMatchObject({ reason: "number_not_in_note", detail: "20" });
+    // numbers given in the question are fine in the answer and the explanation
+    expect(validateQuestions([{ ...single, stem: "A country's MPC is 0.75 and its spending multiplier is 4. What multiplier would a higher MPC give, compared with 4?", options: ["Larger than 4", "Smaller than 4", "Exactly 0.75", "Exactly 1.25"], explanation: "With 0.75 the multiplier is 4; a higher MPC raises it." }], fiscal, [], 8, noShuffle).accepted).toHaveLength(1);
     expect(validateQuestions([{ ...single, options: ["7.5", "2.5", "0.8", "1.25"] }], fiscal, [], 8, noShuffle).rejected[0]).toMatchObject({ reason: "number_not_in_note" });
     // 99 and 3.7 are only wrong options: fine
     expect(validateQuestions([{ ...single, options: ["5", "99", "3.7", "1.25"] }], fiscal, [], 8, noShuffle).accepted).toHaveLength(1);
   });
 
-  it("lets a false true/false statement change a number, but not a true one", () => {
-    const falseTf = { kind: "tf", stem: "With MPC = 0.8 the simple multiplier is 7.5.", answer: false, explanation: "It is 1 / (1 − 0.8) = 5, not 7.5 times larger.", quote: "With MPC = 0.8 the multiplier is 1 / (1 − 0.8) = 5." };
-    // the explanation here also mentions 7.5, which is not in the note, so it is rejected
-    expect(validateQuestions([falseTf], fiscal, [], 8, noShuffle).rejected[0]).toMatchObject({ reason: "number_not_in_note" });
-    expect(validateQuestions([{ ...falseTf, explanation: "It is 1 / (1 − 0.8) = 5." }], fiscal, [], 8, noShuffle).accepted).toHaveLength(1);
-    expect(validateQuestions([{ ...falseTf, answer: true, explanation: "It is 1 / (1 − 0.8) = 5." }], fiscal, [], 8, noShuffle).rejected[0]).toMatchObject({ reason: "number_not_in_note" });
+  it("lets a true/false statement use its own numbers, and its explanation the note's or the statement's", () => {
+    const falseTf = { kind: "tf", stem: "In a country where households spend 80 cents of each extra dollar, a rise in government spending raises GDP by 7.5 times as much.", answer: false, explanation: "It is 1 / (1 − 0.8) = 5 times as much, not 7.5.", quote: "With MPC = 0.8 the multiplier is 1 / (1 − 0.8) = 5." };
+    expect(validateQuestions([falseTf], fiscal, [], 8, noShuffle).accepted).toHaveLength(1);
+    expect(validateQuestions([{ ...falseTf, explanation: "It is 1 / (1 − 0.8) = 5, which is 12.5 less than claimed." }], fiscal, [], 8, noShuffle).rejected[0]).toMatchObject({ reason: "number_not_in_note", detail: "12.5" });
+  });
+
+  it("rejects a question that leans on something it doesn't show", () => {
+    const bad = (over: object) => validateQuestions([{ ...single, ...over }], fiscal, [], 8, noShuffle).rejected[0];
+    // the question Sean flagged
+    expect(bad({ stem: "Under a tariff, which area of the welfare graph represents government revenue?", options: ["Rectangle D", "Triangle C", "Area B", "Triangle E"] })).toMatchObject({ reason: "not_self_contained" });
+    expect(bad({ options: ["5", "Point E", "0.8", "1.25"] })).toMatchObject({ reason: "not_self_contained", detail: "Point E" });
+    expect(bad({ stem: "After a tariff, consumer surplus shrinks from A + B + C to which area?" })).toMatchObject({ reason: "not_self_contained" });
+    expect(bad({ stem: "In the graph above, what is the multiplier?" })).toMatchObject({ reason: "not_self_contained" });
+    expect(bad({ stem: "What multiplier did the professor derive for MPC = 0.8?" })).toMatchObject({ reason: "not_self_contained" });
+    expect(bad({ stem: "In problem set 4, what is the multiplier when MPC = 0.8?" })).toMatchObject({ reason: "not_self_contained" });
+    expect(bad({ explanation: "Rectangle D is the revenue." })).toMatchObject({ reason: "not_self_contained" });
+    // the macro identity and ordinary words are not labels
+    expect(validateQuestions([{ ...single, stem: "If Y = C + I + G and MPC = 0.8, what is the spending multiplier in the simple model?" }], fiscal, [], 8, noShuffle).accepted).toHaveLength(1);
+    expect(validateQuestions([{ ...single, stem: "On a line about spending, at what point a firm stops hiring, what is the multiplier when MPC = 0.8?" }], fiscal, [], 8, noShuffle).accepted).toHaveLength(1);
+  });
+
+  it("rejects a question that copies or rewords a sentence of the note", () => {
+    const copied = validateQuestions([{ ...tf, stem: "The tax-cut multiplier is smaller in magnitude than the spending multiplier." }], fiscal, [], 8, noShuffle).rejected[0];
+    expect(copied).toMatchObject({ reason: "copies_note" });
+    const longRun = validateQuestions([{ ...multi, options: ["Crowding out, imports leaking abroad, and forward-looking households who save a windfall", "b", "c", "d", "e"], answer: ["A", "B"] }], fiscal, [], 8, noShuffle).rejected[0];
+    expect(longRun).toMatchObject({ reason: "copies_note" });
+    expect(longRun.detail).toMatch(/words in a row/);
   });
 
   it("rejects the wrong number of options, repeats, and 'all of the above'", () => {
@@ -152,11 +176,12 @@ describe("question gate", () => {
   });
 
   // Four different facts from the note, so the duplicate check has nothing to merge.
+  // Four statements about new situations, each with the place in the note where its idea is taught.
   const facts: [string, string][] = [
-    ["The tax-cut multiplier is smaller in magnitude than the spending multiplier.", "Smaller in magnitude than the spending multiplier"],
-    ["Crowding out is one reason real multipliers are smaller than the simple formula.", "Crowding out, imports leaking abroad"],
-    ["Automatic stabilizers move with the cycle without new legislation.", "taxes and transfers that move with the cycle without new legislation"],
-    ["The MPC is the share of extra income that is spent.", "the share of extra income that is spent"],
+    ["A government choosing between a tax cut and a spending rise of equal size gets a bigger GDP boost from the spending rise.", "Smaller in magnitude than the spending multiplier"],
+    ["When higher government borrowing pushes interest rates up, private investment falls and GDP rises by less.", "Crowding out, imports leaking abroad"],
+    ["During a recession, unemployment benefits paid out rise even though Congress passes no new law.", "taxes and transfers that move with the cycle without new legislation"],
+    ["A household that spends 90 cents of each extra dollar it earns has a propensity to consume of 0.9.", "the share of extra income that is spent"],
   ];
 
   it("keeps true/false to a quarter of a lecture's questions", () => {
@@ -185,8 +210,11 @@ describe("the second solve", () => {
   const qs = validateQuestions([single, multi, tf], fiscal, [], 8, noShuffle).accepted;
 
   it("shows the note and the questions but never the key, the explanation or the quote", () => {
-    const { system, prompt } = buildSolverPrompts(fiscal, qs);
-    expect(prompt).toContain(fiscal.body);
+    const { system, prompt } = buildSolverPrompts(fiscal, qs, "Macroeconomics");
+    // like a student in the exam room: the course and topic, but never the note
+    expect(prompt).not.toContain(fiscal.body);
+    expect(prompt).not.toContain("Crowding out, imports leaking abroad");
+    expect(prompt).toContain("Course: Macroeconomics. Topic of these questions: Fiscal Multipliers.");
     expect(prompt).toContain("Q1 (choose ONE)");
     expect(prompt).toContain("Q2 (select ALL that apply)");
     expect(prompt).toContain("Q3 (true or false)");
@@ -219,7 +247,10 @@ describe("prompts", () => {
     const { system, prompt } = buildQuestionPrompts(fiscal, { density: "thorough", focus: "only formulas", courses: DEFAULT_COURSES });
     expect(system).toContain(`at most ${QUIZ_TARGET.thorough} questions`);
     expect(system).toContain("never more than a quarter");
-    expect(system).toContain("same length");
+    expect(system).toContain("must NOT be longer");
+    expect(system).toContain("NEW situation");
+    expect(system).toContain("NEVER use lettered areas");
+    expect(system).toContain("never copies or lightly rewords");
     expect(system).toContain("EXACTLY from the note");
     expect(system).toContain("ONLY a JSON array");
     expect(system).toContain("never by letter");

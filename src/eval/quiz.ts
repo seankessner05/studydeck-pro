@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { LOGIN_FIX, checkAuth, checkClaude, friendlyError, runClaude, type Runner } from "../claude.js";
 import { DEFAULT_COURSES } from "../courses.js";
-import { SAMPLE_DIR, type Note } from "../notes.js";
+import { SAMPLE_DIR, loadNotes, type Note } from "../notes.js";
 import { DATA_DIR } from "../paths.js";
 import type { Density } from "../study/cardgen.js";
 import { Q_REJECT_LABEL, generateQuestionsForNote, hasLengthTell, longestIsRightShare, type GeneratedQuestion, type QKind, type QRejected, type QRejectReason } from "../study/quizgen.js";
@@ -123,9 +123,15 @@ async function main() {
     console.error(`\n✖ Claude Code isn't logged in. ${LOGIN_FIX}\n`);
     process.exit(2);
   }
-  const notes = pickEvalNotes(SAMPLE_DIR, Number(arg("per-class") ?? 2));
+  // --notes <folder> --ids <COURSE/file.md,...> runs on real lectures instead of the sample ones.
+  const ids = arg("ids")?.split(",").map((x) => x.trim()).filter(Boolean);
+  const notes = ids ? loadNotes("all", path.resolve(arg("notes") ?? "notes")).filter((n) => ids.includes(n.id)) : pickEvalNotes(SAMPLE_DIR, Number(arg("per-class") ?? 2));
+  if (ids && notes.length !== ids.length) {
+    console.error(`Found ${notes.length} of ${ids.length} lectures. Check the ids (COURSE/file.md) and --notes folder.`);
+    process.exit(2);
+  }
   const min = Number(arg("min") ?? 0.6);
-  console.log(`Writing and double-checking quiz questions for ${notes.length} sample lectures (3 at a time)…\n`);
+  console.log(`Writing and double-checking quiz questions for ${notes.length} ${ids ? "" : "sample "}lectures (3 at a time)…\n`);
   const rows = await evalQuizAll(notes, runClaude, 3, (r) => {
     const why = Object.entries(r.rejected).map(([k, v]) => `${v} ${k}`).join(", ");
     console.log(`${r.ok ? "✓" : "✗"} ${r.note.slice(0, 52).padEnd(52)} ${String(r.accepted.length).padStart(2)} kept of ${String(r.checked).padStart(2)} checked  ${r.seconds.toFixed(1).padStart(5)}s${why ? `  dropped: ${why}` : ""}${r.error ? `  ${r.error}` : ""}`);

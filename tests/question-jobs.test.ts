@@ -84,7 +84,7 @@ describe("quiz question generation job", () => {
     const job = await finish(jobs);
     expect(job.status).toBe("done");
     expect(job.totals).toMatchObject({ created: 0, dropped: 6 });
-    expect(job.items[0].dropped[0].why).toMatch(/blind second solve/);
+    expect(job.items[0].dropped[0].why).toMatch(/second solve, without your notes/);
     expect(listQuestions(db, "ECON301")).toEqual([]);
     // the lecture is still marked as processed, so it isn't offered again as "new"
     expect(questionCoverage(db).get(econ301[0].id)?.versions).toEqual([noteVersion(econ301[0])]);
