@@ -1,13 +1,18 @@
+import { ago, api, courseName, esc, plural, state } from "./core.js";
+import { loadStudyToday } from "./cards.js";
+import { loadQuizHome } from "./quiz.js";
+import { loadProblemsHome } from "./problems.js";
+import { dialogOf, openDialog } from "./dialog.js";
 // ---- Deleting with undo, and the trash ----
 // Nothing is deleted on the spot: a deleted card, question or problem moves to the trash with its answer history,
 // an "Undo" message appears for a few seconds, and the Trash list can bring anything back for 30 days.
 
-const TR = { items: [], keptDays: 30, toastTimer: null };
-const TRASH_RELOAD = { card: () => loadStudyToday(), question: () => loadQuizHome(), problem: () => loadProblemsHome() };
-const TRASH_WORD = { card: "Card", question: "Question", problem: "Problem" };
-const TRASH_HISTORY_WORD = { card: "review", question: "answer", problem: "attempt" };
+export const TR = { items: [], keptDays: 30, toastTimer: null };
+export const TRASH_RELOAD = { card: () => loadStudyToday(), question: () => loadQuizHome(), problem: () => loadProblemsHome() };
+export const TRASH_WORD = { card: "Card", question: "Question", problem: "Problem" };
+export const TRASH_HISTORY_WORD = { card: "review", question: "answer", problem: "attempt" };
 
-function toastEl() {
+export function toastEl() {
   let el = document.getElementById("toast");
   if (!el) {
     el = document.createElement("div");
@@ -21,7 +26,7 @@ function toastEl() {
 }
 
 /** A short message at the bottom of the screen, optionally with one button. It reads itself out to screen readers. */
-function showToast(text, action) {
+export function showToast(text, action) {
   const el = toastEl();
   clearTimeout(TR.toastTimer);
   el.innerHTML = `<div class="pointer-events-auto flex max-w-md items-center gap-3 rounded-2xl bg-ink-900 py-2.5 pr-2.5 pl-4 text-sm font-semibold text-white shadow-pop dark:bg-white dark:text-ink-900">
@@ -31,13 +36,13 @@ function showToast(text, action) {
   if (action) el.querySelector("[data-toast-action]").addEventListener("click", () => { hideToast(); action.run(); });
   TR.toastTimer = setTimeout(hideToast, action ? 9000 : 4000);
 }
-function hideToast() {
+export function hideToast() {
   clearTimeout(TR.toastTimer);
   const el = document.getElementById("toast");
   if (el) el.innerHTML = "";
 }
 
-async function restoreTrash(entry) {
+export async function restoreTrash(entry) {
   const r = await api(`/api/study/trash/${encodeURIComponent(entry.id)}/restore`, "POST");
   await TRASH_RELOAD[entry.kind]();
   showToast(r.ok ? `${TRASH_WORD[entry.kind]} put back.` : r.data.error || "Couldn't put that back.");
@@ -45,7 +50,7 @@ async function restoreTrash(entry) {
 }
 
 /** Delete through the API, refresh the list, and offer to undo. */
-async function deleteWithUndo(kind, url) {
+export async function deleteWithUndo(kind, url) {
   const r = await api(url, "DELETE");
   await TRASH_RELOAD[kind]();
   if (!r.ok) return showToast(r.data.error || "Couldn't delete that.");
@@ -54,7 +59,7 @@ async function deleteWithUndo(kind, url) {
 }
 
 // ---- the Trash list ----
-function trashRowsHtml() {
+export function trashRowsHtml() {
   if (!TR.items.length) return `<div class="px-5 py-10 text-center text-sm font-semibold text-slate-400">The trash is empty.</div>`;
   return TR.items.map((t) => `<div class="flex items-center gap-3 px-5 py-3">
       <div class="min-w-0 flex-1">
@@ -66,38 +71,41 @@ function trashRowsHtml() {
     </div>`).join("");
 }
 
-function renderTrash() {
+export function renderTrash() {
   const panel = dialogOf("trash");
   if (!panel) return;
   panel.querySelector("[data-dialog-body]").innerHTML = `<div class="divide-y divide-slate-100 dark:divide-ink-700">${trashRowsHtml()}</div>`;
   panel.querySelector("[data-dialog-note]").textContent = TR.items.length ? `${plural(TR.items.length, "item")}. Each is kept for ${TR.keptDays} days, then removed for good.` : `Deleted cards, questions and problems wait here for ${TR.keptDays} days.`;
 }
 
-async function loadTrash() {
+export async function loadTrash() {
   const r = await api(`/api/study/trash?course=${encodeURIComponent(state.course)}`);
   if (r.ok) { TR.items = r.data.items; TR.keptDays = r.data.keptDays; }
   renderTrash();
 }
 
-function openTrash(opener) {
+export function openTrash(opener) {
   openDialog("trash", "Trash", opener).note.textContent = "Loading…";
   loadTrash();
 }
 
-document.addEventListener("click", async (e) => {
-  const opener = e.target.closest("[data-trash-open]");
-  if (opener) return openTrash(opener);
-  if (!dialogOf("trash")) return;
-  const back = e.target.closest("[data-trash-restore]");
-  if (back) {
-    const entry = TR.items.find((t) => t.id === back.dataset.trashRestore);
-    if (entry) await restoreTrash(entry);
-    return loadTrash();
-  }
-  const purge = e.target.closest("[data-trash-purge]");
-  if (purge) {
-    if (!confirm("Delete this for good? It can't be brought back after this.")) return;
-    await api(`/api/study/trash/${encodeURIComponent(purge.dataset.trashPurge)}`, "DELETE");
-    return loadTrash();
-  }
-});
+/** Event listeners and first-run work for this part of the app. main.js calls these in the original order. */
+export function init() {
+  document.addEventListener("click", async (e) => {
+    const opener = e.target.closest("[data-trash-open]");
+    if (opener) return openTrash(opener);
+    if (!dialogOf("trash")) return;
+    const back = e.target.closest("[data-trash-restore]");
+    if (back) {
+      const entry = TR.items.find((t) => t.id === back.dataset.trashRestore);
+      if (entry) await restoreTrash(entry);
+      return loadTrash();
+    }
+    const purge = e.target.closest("[data-trash-purge]");
+    if (purge) {
+      if (!confirm("Delete this for good? It can't be brought back after this.")) return;
+      await api(`/api/study/trash/${encodeURIComponent(purge.dataset.trashPurge)}`, "DELETE");
+      return loadTrash();
+    }
+  });
+}

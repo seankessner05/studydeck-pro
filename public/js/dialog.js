@@ -1,18 +1,19 @@
+import { esc } from "./core.js";
 // ---- One small dialog used by the Trash and Restore screens ----
 // Keyboard and screen-reader behaviour lives here once: focus moves into the dialog and stays there, Escape or a
 // click outside closes it, and focus returns to the button that opened it.
 
-const DLG = { returnFocus: null, returnSelector: null, onClose: null };
+export const DLG = { returnFocus: null, returnSelector: null, onClose: null };
 
 /** A way to find the opening button again if the screen behind the dialog was redrawn while it was open. */
-function selectorFor(el) {
+export function selectorFor(el) {
   if (!el) return null;
   if (el.id) return `#${el.id}`;
   const name = el.getAttributeNames().find((n) => n.startsWith("data-"));
   return name ? `[${name}]` : null;
 }
 
-function closeDialog() {
+export function closeDialog() {
   const panel = document.getElementById("dialogPanel");
   if (!panel) return;
   panel.remove();
@@ -24,7 +25,7 @@ function closeDialog() {
 }
 
 /** Opens an empty dialog and returns { note, body } elements to fill in. `kind` lets the opener find its own dialog. */
-function openDialog(kind, title, opener, onClose) {
+export function openDialog(kind, title, opener, onClose) {
   closeDialog();
   DLG.returnFocus = opener || null;
   DLG.returnSelector = selectorFor(opener);
@@ -46,25 +47,27 @@ function openDialog(kind, title, opener, onClose) {
 }
 
 /** The open dialog of this kind, or null. */
-const dialogOf = (kind) => {
+export const dialogOf = (kind) => {
   const panel = document.getElementById("dialogPanel");
   return panel && panel.dataset.kind === kind ? panel : null;
 };
 
-document.addEventListener("click", (e) => {
-  const panel = document.getElementById("dialogPanel");
-  if (panel && (e.target === panel || e.target.closest("[data-dialog-close]"))) closeDialog();
-});
-
-document.addEventListener("keydown", (e) => {
-  const panel = document.getElementById("dialogPanel");
-  if (!panel) return;
-  if (e.key === "Escape") { e.stopPropagation(); return closeDialog(); }
-  if (e.key === "Tab") {
-    const items = [...panel.querySelectorAll("button:not([disabled]), a[href], input, textarea, select")];
-    if (!items.length) return;
-    const first = items[0], last = items[items.length - 1];
-    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
-    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
-  }
-}, true);
+/** Event listeners and first-run work for this part of the app. main.js calls these in the original order. */
+export function init() {
+  document.addEventListener("click", (e) => {
+    const panel = document.getElementById("dialogPanel");
+    if (panel && (e.target === panel || e.target.closest("[data-dialog-close]"))) closeDialog();
+  });
+  document.addEventListener("keydown", (e) => {
+    const panel = document.getElementById("dialogPanel");
+    if (!panel) return;
+    if (e.key === "Escape") { e.stopPropagation(); return closeDialog(); }
+    if (e.key === "Tab") {
+      const items = [...panel.querySelectorAll("button:not([disabled]), a[href], input, textarea, select")];
+      if (!items.length) return;
+      const first = items[0], last = items[items.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    }
+  }, true);
+}

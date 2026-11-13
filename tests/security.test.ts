@@ -93,7 +93,7 @@ describe("requests from another website are refused", () => {
       expect(r.text).not.toContain("Private lecture");
     }
     expect((await raw("GET", "/", { host: "evil.example" })).status).toBe(403);
-    expect((await raw("GET", "/app.js", { host: "evil.example" })).status).toBe(403);
+    expect((await raw("GET", "/js/main.js", { host: "evil.example" })).status).toBe(403);
   });
 
   it("stops a cross-site form post from changing anything", async () => {

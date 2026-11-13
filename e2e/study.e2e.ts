@@ -82,11 +82,13 @@ test.describe("the five things that must always work", () => {
     const problems = watch(page);
     await openStudy(page, "exam");
     await page.locator('[data-ex-preset="quick"]').click();
+    // the exam page must never be sent an answer key: check what the server actually returns
+    const started = page.waitForResponse((r) => r.url().includes("/api/study/exam/start"));
     await page.locator("[data-ex-start]").first().click();
+    const sent = await (await started).text();
+    expect(sent).toContain('"items"');
+    expect(sent).not.toMatch(/"answer"|"explanation"|"steps"|"rubric"/);
     await expect(page.locator("#examHandIn")).toBeVisible({ timeout: 15_000 });
-    // the exam page must never be sent an answer key
-    const sent = await page.evaluate(() => JSON.stringify((window as any).EXM?.sitting ?? {}));
-    expect(sent).not.toMatch(/"answer"|"explanation"|"steps"/);
     const firstOptions = page.locator("#studyBody [data-ex-opt]");
     if (await firstOptions.count()) await firstOptions.first().click();
     page.once("dialog", (d) => d.accept());

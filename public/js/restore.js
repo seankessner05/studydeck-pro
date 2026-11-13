@@ -1,12 +1,14 @@
+import { ago, api, esc } from "./core.js";
+import { dialogOf, openDialog } from "./dialog.js";
 // ---- Restoring a backup ----
 // Two steps on purpose: first look inside a backup (nothing changes), then confirm. The current data is backed up
 // before it is replaced, so a restore can itself be undone from this same list.
 
-const RS = { backups: [], look: null, busy: false, error: "" };
-const fmtWhen = (ms) => new Date(ms).toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
-const RS_ROWS = [["cards", "Flashcards"], ["reviews", "Card reviews"], ["questions", "Quiz questions"], ["problems", "Practice problems"], ["exams", "Exams"]];
+export const RS = { backups: [], look: null, busy: false, error: "" };
+export const fmtWhen = (ms) => new Date(ms).toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+export const RS_ROWS = [["cards", "Flashcards"], ["reviews", "Card reviews"], ["questions", "Quiz questions"], ["problems", "Practice problems"], ["exams", "Exams"]];
 
-function restoreListHtml() {
+export function restoreListHtml() {
   if (!RS.backups.length) return `<div class="px-5 py-10 text-center text-sm font-semibold text-slate-400">No backups yet. One is made automatically once a day.</div>`;
   return `<div class="divide-y divide-slate-100 dark:divide-ink-700">${RS.backups.map((b) => `<div class="flex items-center gap-3 px-5 py-3">
       <div class="min-w-0 flex-1"><div class="text-sm font-bold">${esc(fmtWhen(b.at))}</div><div class="text-[11px] font-semibold text-slate-400">${Math.max(1, Math.round(b.bytes / 1024))} KB · ${esc(ago(new Date(b.at).toISOString()))}</div></div>
@@ -14,7 +16,7 @@ function restoreListHtml() {
     </div>`).join("")}</div>`;
 }
 
-function restoreLookHtml() {
+export function restoreLookHtml() {
   const { backup, now } = RS.look;
   const rows = RS_ROWS.map(([k, label]) => {
     const diff = backup.counts[k] - now[k];
@@ -30,14 +32,14 @@ function restoreLookHtml() {
     </div>`;
 }
 
-function renderRestore() {
+export function renderRestore() {
   const panel = dialogOf("restore");
   if (!panel) return;
   panel.querySelector("[data-dialog-note]").textContent = RS.look ? `Backup from ${fmtWhen(RS.look.backup.at)}` : "Pick a backup to see what it holds. Looking changes nothing.";
   panel.querySelector("[data-dialog-body]").innerHTML = RS.look ? restoreLookHtml() : (RS.error ? `<div class="mx-5 mt-4 rounded-xl bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 dark:bg-red-500/10 dark:text-red-300" role="alert">${esc(RS.error)}</div>` : "") + restoreListHtml();
 }
 
-async function openRestore(opener) {
+export async function openRestore(opener) {
   RS.look = null; RS.error = ""; RS.busy = false;
   openDialog("restore", "Restore a backup", opener).note.textContent = "Loading…";
   const r = await api("/api/study/backups");
@@ -45,25 +47,28 @@ async function openRestore(opener) {
   renderRestore();
 }
 
-document.addEventListener("click", async (e) => {
-  const opener = e.target.closest("[data-restore-open]");
-  if (opener) return openRestore(opener);
-  if (!dialogOf("restore")) return;
-  const look = e.target.closest("[data-restore-look]");
-  if (look) {
-    const r = await api(`/api/study/backups/${encodeURIComponent(look.dataset.restoreLook)}`);
-    RS.error = r.ok ? "" : r.data.error || "Couldn't open that backup.";
-    RS.look = r.ok ? r.data : null;
-    return renderRestore();
-  }
-  if (e.target.closest("[data-restore-back]")) { RS.look = null; RS.error = ""; return renderRestore(); }
-  const go = e.target.closest("[data-restore-go]");
-  if (go && !RS.busy) {
-    RS.busy = true; RS.error = ""; renderRestore();
-    const r = await api(`/api/study/backups/${encodeURIComponent(go.dataset.restoreGo)}/restore`, "POST", { confirm: true });
-    RS.busy = false;
-    if (!r.ok) { RS.error = r.data.error || "The restore didn't happen. Your data is unchanged."; return renderRestore(); }
-    // Everything on screen was read from the old data: start clean.
-    location.reload();
-  }
-});
+/** Event listeners and first-run work for this part of the app. main.js calls these in the original order. */
+export function init() {
+  document.addEventListener("click", async (e) => {
+    const opener = e.target.closest("[data-restore-open]");
+    if (opener) return openRestore(opener);
+    if (!dialogOf("restore")) return;
+    const look = e.target.closest("[data-restore-look]");
+    if (look) {
+      const r = await api(`/api/study/backups/${encodeURIComponent(look.dataset.restoreLook)}`);
+      RS.error = r.ok ? "" : r.data.error || "Couldn't open that backup.";
+      RS.look = r.ok ? r.data : null;
+      return renderRestore();
+    }
+    if (e.target.closest("[data-restore-back]")) { RS.look = null; RS.error = ""; return renderRestore(); }
+    const go = e.target.closest("[data-restore-go]");
+    if (go && !RS.busy) {
+      RS.busy = true; RS.error = ""; renderRestore();
+      const r = await api(`/api/study/backups/${encodeURIComponent(go.dataset.restoreGo)}/restore`, "POST", { confirm: true });
+      RS.busy = false;
+      if (!r.ok) { RS.error = r.data.error || "The restore didn't happen. Your data is unchanged."; return renderRestore(); }
+      // Everything on screen was read from the old data: start clean.
+      location.reload();
+    }
+  });
+}
