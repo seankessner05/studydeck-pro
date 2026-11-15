@@ -10,7 +10,7 @@ export const KIND_SHORT = { single: "Pick 1", multi: "Select all", tf: "T / F" }
 export const LETTER = "ABCDE";
 
 export function subSwitch() {
-  const tabs = [["cards", "🃏", "Cards"], ["quiz", "📝", "Quiz"], ["problems", "🧮", "Problems"], ["tutor", "🗣️", "Tutor"], ["exam", "🎯", "Exam"], ["progress", "📊", "Progress"]];
+  const tabs = [["today", "☀️", "Today"], ["cards", "🃏", "Cards"], ["quiz", "📝", "Quiz"], ["problems", "🧮", "Problems"], ["tutor", "🗣️", "Tutor"], ["exam", "🎯", "Exam"], ["progress", "📊", "Progress"]];
   return `<div class="flex gap-1 overflow-x-auto rounded-2xl bg-slate-100 p-1 [scrollbar-width:none] dark:bg-ink-800">${tabs.map(([id, ic, label]) => `<button data-sub="${id}" class="shrink-0 grow rounded-xl px-3 py-2 text-sm font-extrabold whitespace-nowrap transition ${S.sub === id ? "bg-white text-brand-700 shadow-card dark:bg-ink-600 dark:text-brand-200" : "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"}">${ic} ${label}</button>`).join("")}</div>`;
 }
 

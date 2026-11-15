@@ -25,7 +25,10 @@ import { getTutorSession, listTutorSessions, startTutor, topicsOf, tutorTurn } f
 import { generateWrittenQuestions, gradeWritten } from "./study/written.js";
 import { PRESETS, applyRemark, applyWrittenGrades, createSitting, getSitting, listSittings, pendingWritten, remarkInput, submitSitting, summarize, type Preset } from "./study/sittings.js";
 import { ONEPAGE_LIMIT, buildGuide, cardsForSheet, deleteSheet, generateOnePage, getSheet, listSheets, saveSheet, sheetToMarkdown } from "./study/cheatsheets.js";
-import { buildPlan, insights as buildInsights, lectureProgress, readiness, weakSpots } from "./study/mastery.js";
+import { buildPlan, cramFor, insights as buildInsights, lectureProgress, readiness, readinessNext, weakSpots } from "./study/mastery.js";
+
+/** Cram mode raises the daily new-card limit to at least this for the class with an exam days away. */
+const CRAM_NEW_PER_DAY = 50;
 import { answerProblem, finishPractice, listProblems, problemAccuracy, problemCounts, problemCoverage, startPractice } from "./study/problems.js";
 import { DENSITIES, DENSITY_TARGET, noteVersion, type Density } from "./study/cardgen.js";
 import { CardGenerationJobs, ProblemGenerationJobs, QuestionGenerationJobs } from "./study/jobs.js";
@@ -122,6 +125,12 @@ export function createApp(rawDeps: AppDeps) {
   const streakNow = () => studyStreak(loadChats(deps.dataDir), new Date(), studyDays(sdb()));
   const paused = () => loadSettings(deps.dataDir).aiPaused;
   const newLimit = () => loadSettings(deps.dataDir).newPerDay;
+  /** Your daily limit, raised to at least CRAM_NEW_PER_DAY for a class with an exam within a few days. */
+  const cramNow = () => cramFor(listExams(sdb(), "all"));
+  const newLimitFor = (course: string) => {
+    const base = newLimit();
+    return cramNow()?.course === course ? Math.max(base, CRAM_NEW_PER_DAY) : base;
+  };
   const chatKey = (course: string) => (current().source === "samples" ? `sample:${course}` : course);
 
   app.get("/api/state", (_req, res) => {
@@ -310,13 +319,14 @@ export function createApp(rawDeps: AppDeps) {
     const course = scopeOf(req.query.course);
     if (!course) return res.status(404).json({ error: "Unknown class" });
     const db = sdb();
-    res.json({ counts: counts(db, course, new Date(), newLimit()), forecast: forecast(db, course), accuracy: accuracy(db, course), streak: streakNow(), newPerDay: newLimit() });
+    const cram = cramNow();
+    res.json({ counts: counts(db, course, new Date(), newLimitFor), forecast: forecast(db, course), accuracy: accuracy(db, course), streak: streakNow(), newPerDay: newLimit(), cram: cram ? { ...cram, newPerDay: newLimitFor(cram.course) } : null });
   }));
 
   app.get("/api/study/session", studyRoute(async (req, res) => {
     const course = scopeOf(req.query.course);
     if (!course) return res.status(404).json({ error: "Unknown class" });
-    res.json(await buildSession(sdb(), course, new Date(), Math.min(200, Number(req.query.limit) || 50), newLimit()));
+    res.json(await buildSession(sdb(), course, new Date(), Math.min(200, Number(req.query.limit) || 50), newLimitFor));
   }));
 
   app.post("/api/study/review", studyRoute(async (req, res) => {
@@ -508,7 +518,7 @@ export function createApp(rawDeps: AppDeps) {
     return loadNotes(course, cur.dir, activeIdsOf(cur.courses)).map((n) => ({ id: n.id, course: n.course, title: n.title, date: n.date }));
   };
   const dueIn = (course: string) => {
-    const k = counts(sdb(), course, new Date(), newLimit());
+    const k = counts(sdb(), course, new Date(), newLimitFor);
     return k.due + k.learning;
   };
 
@@ -538,7 +548,7 @@ export function createApp(rawDeps: AppDeps) {
     const lectures = lectureProgress(db, notes);
     const exams = listExams(db, course).map((e) => {
       const scoped = lectureProgress(db, inScope(e, noteRefs(e.course)));
-      return { ...e, daysLeft: daysUntil(e), lectures: scoped.length, readiness: readiness(scoped), weak: weakSpots(scoped, 3) };
+      return { ...e, daysLeft: daysUntil(e), lectures: scoped.length, readiness: readiness(scoped), next: readinessNext(scoped), weak: weakSpots(scoped, 3) };
     });
     res.json({
       lectures: lectures.sort((a, b) => b.date.localeCompare(a.date)),
@@ -555,7 +565,7 @@ export function createApp(rawDeps: AppDeps) {
     const db = sdb();
     const exams = listExams(db, course);
     const minutes = Math.max(10, Math.min(240, Number(req.query.minutes) || 45));
-    const plan = buildPlan({ db, exams, notes: noteRefs("all"), minutes, dueCards: dueIn });
+    const plan = buildPlan({ db, exams, notes: noteRefs("all"), minutes, dueCards: dueIn, newCards: (c) => counts(sdb(), c, new Date(), newLimitFor).newAvailable });
     res.json({ ...plan, plans: plan.plans.map((p) => ({ ...p, exam: { ...p.exam, daysLeft: p.daysLeft } })) });
   }));
 

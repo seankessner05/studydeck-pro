@@ -5,6 +5,7 @@ import { loadQuizHome, renderQuizDone, renderQuizHome, renderQuizPlay, subSwitch
 import { loadStudyMore, renderStudyMore } from "./studyhub.js";
 import { MT, renderMatch } from "./match.js";
 import { CT, cardToolsHtml, offerUndo } from "./cardtools.js";
+import { loadToday, renderToday, renderTodayBar } from "./today.js";
 
 // ---- study ----
 export const GRADE_LABEL = { 1: "Again", 2: "Hard", 3: "Good", 4: "Easy" };
@@ -27,13 +28,16 @@ export async function loadStudyToday() {
   S.badge = k.due + k.learning + k.newAvailable;
   $("studyBadge").textContent = S.badge;
   $("studyBadge").classList.toggle("hidden", !S.badge);
-  if (["problems", "tutor", "exam", "progress"].includes(S.sub)) await loadStudyMore();
+  if (S.sub === "today") await loadToday();
+  else if (["problems", "tutor", "exam", "progress"].includes(S.sub)) await loadStudyMore();
   else if (S.sub === "quiz") await loadQuizHome();
   else if (state.view === "study" && S.mode === "home") renderStudyHome();
   resumeGeneration();
 }
 
 export function renderStudy() {
+  renderTodayBar();
+  if (S.sub === "today") return renderToday();
   if (typeof MT !== "undefined" && MT.on && S.sub === "cards") return renderMatch();
   if (["problems", "tutor", "exam", "progress"].includes(S.sub)) return renderStudyMore();
   if (S.sub === "quiz") {

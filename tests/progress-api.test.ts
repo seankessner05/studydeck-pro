@@ -55,10 +55,12 @@ describe("exams, progress and the plan over the API", () => {
     expect((await j("/api/study/progress?course=NOPE")).status).toBe(404);
   });
 
-  it("plans the day: make material first, because there is none, and a mock exam is near", async () => {
+  it("plans the day: three days out is cram mode, so making material is offered rather than run", async () => {
     const plan = await (await j("/api/study/plan?course=all&minutes=60")).json();
-    expect(plan.items[0]).toMatchObject({ kind: "generate", course: "ECON301" });
-    expect(plan.items[0].noteIds).toHaveLength(3);
+    expect(plan.cram).toMatchObject({ course: "ECON301", daysLeft: 3 });
+    expect(plan.items.some((i: any) => i.kind === "generate")).toBe(false);
+    expect(plan.optional[0]).toMatchObject({ kind: "generate", course: "ECON301" });
+    expect(plan.optional[0].noteIds).toHaveLength(3);
     expect(plan.plans[0]).toMatchObject({ daysLeft: 3, inScope: 3 });
     expect(plan.budget).toBe(60);
     expect(plan.totalMinutes).toBeLessThanOrEqual(60);

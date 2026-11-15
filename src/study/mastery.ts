@@ -225,6 +225,8 @@ export interface ExamPlan {
   exam: Exam;
   daysLeft: number;
   readiness: Readiness;
+  /** What would raise readiness the most, in one sentence */
+  next: string;
   inScope: number;
   items: PlanItem[];
 }
@@ -237,17 +239,27 @@ export interface PlanInput {
   now?: Date;
   /** Cards due now per class */
   dueCards: (course: string) => number;
+  /** New cards you may still learn today per class (after the daily limit) */
+  newCards?: (course: string) => number;
 }
 
 /** Order what to do today for one exam: material first if there is none, then due cards, then the weakest topics, then untried ones. */
-function examItems(exam: Exam, lectures: LectureProgress[], due: number, daysLeft: number): PlanItem[] {
+function examItems(exam: Exam, lectures: LectureProgress[], due: number, daysLeft: number, fresh = 0): PlanItem[] {
   const items: PlanItem[] = [];
   const course = exam.course;
   const noMaterial = lectures.filter((l) => !l.material.cards && !l.material.questions && !l.material.problems);
   if (noMaterial.length) {
     items.push({ kind: "generate", title: `Make study material for ${noMaterial.length} ${noMaterial.length === 1 ? "lecture" : "lectures"}`, detail: `${noMaterial.slice(0, 3).map((l) => l.title).join("; ")}${noMaterial.length > 3 ? "…" : ""} have no cards, questions or problems yet.`, minutes: 5, course, examId: exam.id, noteIds: noMaterial.map((l) => l.id) });
   }
-  if (due > 0) items.push({ kind: "cards", title: `Review ${due} due ${due === 1 ? "card" : "cards"}`, detail: "Spaced repetition: these are due now, and later is harder.", minutes: Math.min(20, Math.max(3, Math.ceil(due * 0.4))), course, examId: exam.id });
+  if (due > 0 || fresh > 0) {
+    const n = due + fresh;
+    items.push({
+      kind: "cards",
+      title: due && fresh ? `Study ${n} cards` : due ? `Review ${due} due ${due === 1 ? "card" : "cards"}` : `Learn ${fresh} new ${fresh === 1 ? "card" : "cards"}`,
+      detail: due && fresh ? `${due} due now, ${fresh} new. Spaced repetition: due cards first, later is harder.` : due ? "Spaced repetition: these are due now, and later is harder." : "New cards from your lectures, introduced a few at a time so they stick.",
+      minutes: Math.min(20, Math.max(3, Math.ceil(due * 0.4 + fresh * 0.6))), course, examId: exam.id,
+    });
+  }
   const weak = weakSpots(lectures, 4);
   const seen = new Set<string>();
   for (const w of weak) {
@@ -266,7 +278,34 @@ function examItems(exam: Exam, lectures: LectureProgress[], due: number, daysLef
   return items;
 }
 
-export function buildPlan(input: PlanInput): { plans: ExamPlan[]; items: PlanItem[]; totalMinutes: number; budget: number } {
+/** Cram mode: an exam within this many days changes the plan. */
+export const CRAM_DAYS = 3;
+
+export interface Cram {
+  examId: string;
+  course: string;
+  name: string;
+  daysLeft: number;
+}
+
+/** The exam to cram for: the soonest one within CRAM_DAYS days (today counts), if any. */
+export function cramFor(exams: Exam[], now = new Date()): Cram | undefined {
+  const soon = [...exams].map((e) => ({ e, d: daysUntil(e, now) })).filter((x) => x.d >= 0 && x.d <= CRAM_DAYS).sort((a, b) => a.d - b.d)[0];
+  return soon ? { examId: soon.e.id, course: soon.e.course, name: soon.e.name, daysLeft: soon.d } : undefined;
+}
+
+/** One plain sentence on what would raise readiness the most, from the lectures in scope. */
+export function readinessNext(lectures: LectureProgress[]): string {
+  const untried = lectures.filter((l) => l.mastery.level === "unknown");
+  const withMaterial = untried.filter((l) => l.material.questions || l.material.problems || l.material.cards);
+  if (withMaterial.length) return `Test yourself on the ${withMaterial.length === 1 ? "lecture" : `${withMaterial.length} lectures`} you haven't practiced yet (${withMaterial.slice(0, 2).map((l) => `“${l.title}”`).join(", ")}${withMaterial.length > 2 ? "…" : ""}): until then the estimate is a guess.`;
+  if (untried.length) return `${untried.length} ${untried.length === 1 ? "lecture has" : "lectures have"} no cards or questions yet, so there's nothing to practice them with.`;
+  const weak = weakSpots(lectures, 1)[0];
+  if (weak) return `Your weakest area is “${weak.section}” in “${weak.title}” (${Math.round((weak.mastery.score ?? 0) * 100)}%): that's where practice moves the number most.`;
+  return "Everything in scope is solid. A timed mock exam is the best check now.";
+}
+
+export function buildPlan(input: PlanInput): { plans: ExamPlan[]; items: PlanItem[]; totalMinutes: number; budget: number; cram: Cram | null; optional: PlanItem[] } {
   const now = input.now ?? new Date();
   const budget = input.minutes ?? 45;
   const plans: ExamPlan[] = [];
@@ -274,7 +313,22 @@ export function buildPlan(input: PlanInput): { plans: ExamPlan[]; items: PlanIte
     const scope = inScope(exam, input.notes);
     const lectures = lectureProgress(input.db, scope, now);
     const daysLeft = daysUntil(exam, now);
-    plans.push({ exam, daysLeft, readiness: readiness(lectures), inScope: scope.length, items: examItems(exam, lectures, input.dueCards(exam.course), daysLeft) });
+    plans.push({ exam, daysLeft, readiness: readiness(lectures), next: readinessNext(lectures), inScope: scope.length, items: examItems(exam, lectures, input.dueCards(exam.course), daysLeft, input.newCards?.(exam.course) ?? 0) });
+  }
+  // Cram mode: the exam that's days away comes first, weakest topics before due cards, card sessions kept short, and
+  // nothing that spends Claude usage (making material) unless you ask for it yourself.
+  const cram = cramFor(input.exams, now);
+  /** Offered but not part of the run: in cram mode, making material (it spends Claude usage, so it's your call). */
+  const optional: PlanItem[] = [];
+  if (cram) {
+    plans.sort((a, b) => (a.exam.id === cram.examId ? -1 : b.exam.id === cram.examId ? 1 : 0));
+    const p = plans[0];
+    const rank = (it: PlanItem) => ({ quiz: 0, problems: 1, cards: 2, tutor: 3, exam: 4, generate: 5 })[it.kind] ?? 6;
+    optional.push(...p.items.filter((it) => it.kind === "generate").map((it) => ({ ...it, detail: `${it.detail} Making material uses Claude, so it's up to you.` })));
+    p.items = p.items
+      .filter((it) => it.kind !== "generate")
+      .map((it) => (it.kind === "cards" ? { ...it, minutes: Math.min(it.minutes, 15), detail: `Cram mode: ${it.detail}` } : it))
+      .sort((a, b) => rank(a) - rank(b) || 0);
   }
   // One list for the day, soonest exam first, trimmed to the time you have (but never empty if there is anything to do).
   const items: PlanItem[] = [];
@@ -291,5 +345,5 @@ export function buildPlan(input: PlanInput): { plans: ExamPlan[]; items: PlanIte
       total += it.minutes;
     }
   }
-  return { plans, items, totalMinutes: total, budget };
+  return { plans, items, totalMinutes: total, budget, cram: cram ?? null, optional };
 }

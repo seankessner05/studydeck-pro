@@ -4,7 +4,7 @@ export const state = {
   course: "all", view: "chat", courses: [], profiles: [], editable: false, total: 0, source: "samples", demo: false, streak: 0, busy: false,
   notes: [], granola: { connected: false, syncing: false, last: null, msg: "", authUrl: "", detail: "" },
   aiPaused: false, usage: null,
-  study: { sub: "cards", gen: { open: false, plan: null, selected: new Set(), density: "normal", focus: "", job: null, polling: false, error: "" },
+  study: { sub: "today", gen: { open: false, plan: null, selected: new Set(), density: "normal", focus: "", job: null, polling: false, error: "" },
     qgen: { open: false, plan: null, selected: new Set(), density: "normal", focus: "", job: null, polling: false, error: "" },
     pgen: { open: false, plan: null, selected: new Set(), density: "normal", focus: "", job: null, polling: false, error: "" },
     quiz: { mode: "home", home: null, length: 10, error: "", runId: "", queue: [], idx: 0, picked: [], result: null, explain: null, asked: 0, correct: 0, t0: 0, qT0: 0, busy: false, summary: null },

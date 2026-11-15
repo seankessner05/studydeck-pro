@@ -181,9 +181,12 @@ describe("the daily plan", () => {
     for (const x of run.questions) answerQuestion(db, { runId: run.runId, questionId: x.id, picked: [0] }, day(9));
     const plan = buildPlan({ db, exams: listExams(db, "all", day(10)), notes, now: day(10), dueCards: () => 12, minutes: 120 });
     const kinds = plan.items.map((i) => i.kind);
-    expect(kinds.slice(0, 3)).toEqual(["generate", "cards", "quiz"]);
-    expect(plan.items[0].noteIds).toEqual(["ECON301/a.md", "ECON301/c.md"]);
-    expect(plan.items[2]).toMatchObject({ title: "Quiz: Monopoly", noteIds: ["ECON301/b.md"] });
+    // two days out is cram mode: the weakest lecture first, then cards; making material is offered, not run
+    expect(plan.cram).toMatchObject({ daysLeft: 2 });
+    expect(kinds.slice(0, 2)).toEqual(["quiz", "cards"]);
+    expect(plan.items[0]).toMatchObject({ title: "Quiz: Monopoly", noteIds: ["ECON301/b.md"] });
+    expect(kinds).not.toContain("generate");
+    expect(plan.optional).toMatchObject([{ kind: "generate", noteIds: ["ECON301/a.md", "ECON301/c.md"] }]);
     expect(kinds).toContain("tutor");
     expect(kinds).toContain("exam"); // two days out
     expect(plan.plans[0]).toMatchObject({ daysLeft: 2, inScope: 3 });

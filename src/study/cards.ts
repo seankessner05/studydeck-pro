@@ -104,11 +104,15 @@ function newIntroducedToday(db: Db, course: string, now: number): number {
  * How many new cards each class may still introduce today. The limit is per class, also when studying "Everything":
  * with a limit of 30 and two classes, Everything can show up to 60 new cards.
  */
-function newRoomByCourse(db: Db, course: string, now: number, newPerDay: number): Map<string, number> {
+/** A daily limit for every class, or one per class (cram mode raises it for the class with an exam days away). */
+export type NewLimit = number | ((course: string) => number);
+const limitOf = (l: NewLimit, course: string) => (typeof l === "number" ? l : l(course));
+
+function newRoomByCourse(db: Db, course: string, now: number, newPerDay: NewLimit): Map<string, number> {
   const sc = scope(course);
   const rows = db.prepare(`SELECT course, COUNT(*) n FROM cards WHERE ${sc.sql} AND suspended = 0 AND state = 0 GROUP BY course`).all(...sc.args) as { course: string; n: number }[];
   const out = new Map<string, number>();
-  for (const r of rows) out.set(r.course, Math.min(Number(r.n), Math.max(0, newPerDay - newIntroducedToday(db, r.course, now))));
+  for (const r of rows) out.set(r.course, Math.min(Number(r.n), Math.max(0, limitOf(newPerDay, r.course) - newIntroducedToday(db, r.course, now))));
   return out;
 }
 
@@ -123,7 +127,7 @@ export interface Counts {
   suspended: number;
 }
 
-export function counts(db: Db, course: string, now = new Date(), newPerDay = NEW_PER_DAY): Counts {
+export function counts(db: Db, course: string, now = new Date(), newPerDay: NewLimit = NEW_PER_DAY): Counts {
   const sc = scope(course);
   const n = now.getTime();
   const one = (where: string, ...args: (string | number)[]) =>
@@ -143,7 +147,7 @@ export interface SessionCard extends CardRow {
 }
 
 /** Today's work: everything due (oldest first), then new cards up to the daily limit. */
-export async function buildSession(db: Db, course: string, now = new Date(), limit = 50, newPerDay = NEW_PER_DAY): Promise<SessionCard[]> {
+export async function buildSession(db: Db, course: string, now = new Date(), limit = 50, newPerDay: NewLimit = NEW_PER_DAY): Promise<SessionCard[]> {
   const sc = scope(course);
   const n = now.getTime();
   const due = db

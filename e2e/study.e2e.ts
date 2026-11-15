@@ -16,7 +16,8 @@ async function openStudy(page: Page, sub?: string) {
   await page.goto("/");
   await page.locator('[data-view="study"]').click();
   await expect(page.locator("#studyBody [data-sub='cards']")).toBeVisible();
-  if (sub) await page.locator(`#studyBody [data-sub="${sub}"]`).click();
+  // Study opens on Today; every other screen is one tab away
+  await page.locator(`#studyBody [data-sub="${sub ?? "cards"}"]`).click();
 }
 
 /** The hostile text must show up as text. If it ever ran, it set window.__xss; if it ever became markup, there is an <img src="x">. */
@@ -329,6 +330,44 @@ test.describe("fixing cards while studying", () => {
     await page.locator("[data-toast-action]").click();
     await expect.poll(question).toBe(front);
     expect(left).toContain("A better answer");
+    expect(problems).toEqual([]);
+  });
+});
+
+test.describe("today", () => {
+  test("Study opens on Today; Start walks the plan step by step, and the run can be resumed", async ({ page }) => {
+    const problems = watch(page);
+    await page.goto("/");
+    await page.evaluate(() => localStorage.removeItem("today-run"));
+    await page.locator('[data-view="study"]').click();
+    await expect(page.getByRole("heading", { name: "Today's plan" })).toBeVisible();
+    await expect(page.locator("#studyBody")).toContainText("Exam 2");
+    await expect(page.locator("#studyBody")).toContainText("To raise it:");
+    // the seeded Exam 2 is 5 days out: no cram mode
+    await expect(page.locator("#studyBody")).not.toContainText("Cram mode");
+    await page.locator('[data-today-min="90"]').click();
+    await expect(page.locator('[data-today-min="90"]')).toHaveAttribute("aria-pressed", "true");
+    const steps = await page.locator("#studyBody ol > li").count();
+    expect(steps).toBeGreaterThan(0);
+
+    await page.locator("[data-today-start]").click();
+    const bar = page.locator("#todayBar");
+    await expect(bar).toBeVisible();
+    await expect(bar).toContainText(`step 1 of ${steps}`);
+
+    // leave and come back: Today offers to continue
+    await page.reload();
+    await page.locator('[data-view="study"]').click();
+    await expect(page.locator("[data-today-resume]")).toBeVisible();
+    await page.locator("[data-today-resume]").click();
+    await expect(bar).toContainText(`step 1 of ${steps}`);
+
+    for (let i = 0; i < steps; i++) {
+      await expect(bar).toContainText(`step ${i + 1} of ${steps}`);
+      await bar.locator("[data-today-next]").click();
+    }
+    await expect(page.getByRole("heading", { name: "Done for today" })).toBeVisible();
+    await expect(bar).toBeHidden();
     expect(problems).toEqual([]);
   });
 });

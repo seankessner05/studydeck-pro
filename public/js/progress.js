@@ -65,7 +65,11 @@ export function renderProgress() {
 
 export async function runPlanItem(i) {
   const it = PG.plan.items[i];
-  if (!it) return;
+  if (it) return startPlanStep(it);
+}
+
+/** Open whatever a plan step needs: a card session, a quiz or problems on its lectures, the tutor, the Exam tab. */
+export async function startPlanStep(it) {
   if (it.course && it.course !== state.course) await selectCourse(it.course);
   if (it.kind === "cards") { S.sub = "cards"; S.mode = "home"; renderStudy(); await loadStudyToday(); return startStudySession(); }
   if (it.kind === "quiz") { S.sub = "quiz"; return startQuiz(it.noteIds); }
@@ -82,5 +86,5 @@ export async function runPlanItem(i) {
     return;
   }
   if (it.kind === "tutor") { TUT.mode = "home"; S.sub = "tutor"; renderStudy(); await loadTutorHome(); return pickTutorLecture((it.noteIds || [])[0]); }
-  if (it.kind === "exam") { EXM.mode = "home"; S.sub = "exam"; renderStudy(); await loadExamHome(); return startMockExam(it.examId); }
+  if (it.kind === "exam") { EXM.mode = "home"; S.sub = "exam"; renderStudy(); return loadExamHome(); }
 }
