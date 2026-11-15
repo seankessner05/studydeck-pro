@@ -31,6 +31,9 @@ const note = (course: string, file: string, title: string, date: string, body: s
 const costs = note("ECON301", "2026-10-08_theory-of-costs.md", "Theory of costs", "2026-10-08", "## Marginal cost\n\n- Marginal cost (MC): derivative of the cost function with respect to Q\n- For C(Q) = 25 + 10Q + Q^2, MC = 10 + 2Q\n\n## Fixed and variable cost\n\n- A firm's fixed cost doesn't change with output & is paid even at Q = 0\n- Fixed cost does not change with output\n- Average variable cost is variable cost divided by Q");
 const monopoly = note("ECON301", "2026-10-29_monopoly.md", "Monopoly pricing", "2026-10-29", "## Marginal revenue\n\n- A monopolist sets MR = MC, then reads the price off the demand curve\n- With inverse demand P = 40 - Q, revenue is 40Q - Q^2 and MR = 40 - 2Q");
 note("ECON301", "2026-11-03_hostile.md", `Hostile ${HOSTILE}`, "2026-11-03", `## Section ${HOSTILE}\n\n- A bullet with **bold ${HOSTILE}** and \`code ${HOSTILE}\`\n\n| Cue | Notes |\n|---|---|\n| cell ${HOSTILE} | javascript:alert(1) |\n\n> quote ${HOSTILE}`);
+fs.mkdirSync(path.join(notesDir, "unsorted"), { recursive: true });
+note("unsorted", "2026-11-04_pricing-review.md", "Pricing review", "2026-11-04", "## Monopoly\n\n- A monopolist sets MR = MC, then reads the price off the demand curve\n- Marginal cost (MC) is the derivative of the cost function; fixed cost does not change with output\n- Deadweight loss shrinks consumer surplus");
+note("unsorted", "2026-11-05_visa.md", "Visa appointment", "2026-11-05", "Bring the passport, two photos and the acceptance letter to the consulate on Tuesday.");
 note("ECON300", "2026-10-13_golden-rule.md", "Golden rule", "2026-10-13", "## Golden rule\n\n- The golden rule level of capital maximizes consumption per worker\n- At the golden rule, MPK = depreciation plus population growth");
 
 const db = studyDb(dataDir);

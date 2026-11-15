@@ -62,8 +62,16 @@ export async function refreshState() {
   renderSidebar(); renderHeader(); renderStreak(); renderAi();
 }
 
+/** Suggested classes for Inbox notes, by file name. Only loaded while the Inbox is open. */
+export const INBOX = { suggestions: new Map() };
+
 export async function loadNotes() {
   state.notes = await fetch(`/api/notes?course=${encodeURIComponent(state.course)}`).then((r) => (r.ok ? r.json() : []));
+  INBOX.suggestions = new Map();
+  if (state.course === "unsorted" && state.source === "notes") {
+    const list = await fetch("/api/notes/suggestions").then((r) => (r.ok ? r.json() : []));
+    INBOX.suggestions = new Map(list.filter((x) => x.suggestion).map((x) => [x.file, x.suggestion]));
+  }
   if (state.view === "notes") renderNotes();
 }
 
@@ -94,19 +102,27 @@ export function noteCard(n) {
     ? `<select data-move="${esc(n.id)}" class="mt-3 w-full rounded-xl border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-xs font-bold text-amber-900 dark:border-sun/40 dark:bg-sun/10 dark:text-sun">
          <option value="">📥 File under a class…</option>${state.courses.filter((c) => !c.archived && c.id !== "unsorted").map((c) => `<option value="${esc(c.id)}">${esc(c.id)} · ${esc(c.name)}</option>`).join("")}</select>`
     : "";
+  const sug = inbox ? INBOX.suggestions.get(n.file) : null;
+  const suggestion = sug
+    ? `<div class="mt-3 flex flex-wrap items-center gap-2 rounded-xl bg-brand-50 px-2.5 py-2 text-xs dark:bg-brand-500/10"><span class="min-w-0 flex-1 font-semibold text-brand-800 dark:text-brand-200">${sug.confidence === "likely" ? "Looks like" : "Maybe"} <b>${esc(courseName(sug.course))}</b></span><button data-file-to="${esc(n.id)}|${esc(sug.course)}" class="min-h-9 rounded-lg bg-brand-500 px-3 font-extrabold text-white hover:bg-brand-600">File it</button></div>`
+    : "";
   return `<div class="fade-in group flex flex-col rounded-2xl border-l-4 bg-white p-4 shadow-card ring-1 ring-slate-200/70 transition hover:-translate-y-0.5 hover:shadow-pop dark:bg-ink-800 dark:ring-ink-600 ${p.bar}">
     <button data-open="${esc(n.id)}" class="flex-1 text-left">
       <div class="flex items-center justify-between gap-2 text-xs"><span class="font-extrabold ${p.text}">${esc(fmtDate(n.date))}</span><span class="truncate rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-extrabold text-slate-500 dark:bg-ink-700 dark:text-slate-300">${esc(n.course === "unsorted" ? "Inbox" : n.course)}</span></div>
       <div class="mt-2 line-clamp-2 text-[15px] leading-snug font-extrabold">${esc(n.title)}</div>
       <p class="mt-1.5 line-clamp-3 text-[13px] leading-relaxed text-slate-500 dark:text-slate-400">${esc(n.snippet)}</p>
-    </button>${mover}</div>`;
+    </button>${suggestion}${mover}</div>`;
 }
 
 export function renderNotes() {
   const q = $("notesSearch").value.trim().toLowerCase();
   const list = q ? state.notes.filter((n) => `${n.title} ${n.snippet} ${n.course}`.toLowerCase().includes(q)) : state.notes;
+  const likely = state.course === "unsorted" ? list.filter((n) => INBOX.suggestions.get(n.file)?.confidence === "likely") : [];
+  const bulk = likely.length > 1
+    ? `<div class="col-span-full flex flex-wrap items-center gap-3 rounded-2xl bg-white p-4 shadow-card ring-1 ring-slate-200/70 dark:bg-ink-800 dark:ring-ink-600"><span class="min-w-0 flex-1 text-sm font-semibold">${likely.length} notes clearly look like one of your classes. Suggestions come from matching words with each class's notes, so check them.</span><button data-file-all class="min-h-10 rounded-xl bg-brand-500 px-4 text-sm font-extrabold text-white hover:bg-brand-600">Review and file ${likely.length}</button></div>`
+    : "";
   $("notesGrid").innerHTML = list.length
-    ? list.map(noteCard).join("")
+    ? bulk + list.map(noteCard).join("")
     : `<div class="col-span-full mx-auto mt-10 max-w-sm text-center text-sm text-slate-500"><div class="text-4xl">${q ? "🤷" : "📭"}</div><p class="mt-3 font-semibold">${q ? "No notes match that search." : "No notes in here yet."}</p>${q ? "" : '<p class="mt-1">Connect Granola in the sidebar and your classes fill up automatically.</p>'}</div>`;
 }
 

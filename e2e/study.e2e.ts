@@ -371,3 +371,20 @@ test.describe("today", () => {
     expect(problems).toEqual([]);
   });
 });
+
+test.describe("inbox", () => {
+  test("suggests a class for an unfiled note and files it in one tap; says nothing for a non-class note", async ({ page, isMobile }) => {
+    test.skip(!!isMobile, "the class list is in the sidebar, which the phone layout hides");
+    const problems = watch(page);
+    await page.goto("/");
+    await page.locator('[data-course="unsorted"]').click();
+    await page.locator('[data-view="notes"]').click();
+    const pricing = page.locator("#notesGrid > div", { hasText: "Pricing review" });
+    await expect(pricing).toContainText("Microeconomics");
+    await expect(page.locator("#notesGrid > div", { hasText: "Visa appointment" }).locator("[data-file-to]")).toHaveCount(0);
+    await pricing.locator("[data-file-to]").click();
+    await expect(page.locator("#toast")).toContainText("Filed under Microeconomics");
+    await expect(page.locator("#notesGrid")).not.toContainText("Pricing review");
+    expect(problems).toEqual([]);
+  });
+});

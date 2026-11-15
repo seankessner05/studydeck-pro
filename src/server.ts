@@ -36,6 +36,7 @@ import { recordUsage, usageSummary } from "./study/usage.js";
 import { runDoctor, type DoctorDeps } from "./doctor.js";
 import { DATA_DIR } from "./paths.js";
 import { localGuard } from "./security.js";
+import { Suggester } from "./suggest.js";
 import { ExamBuildError, StyledError, applyStyledWritten, blueprintPoints, buildStyledExam, createStyledSitting, getStyled, listStyled, loadBlueprint, pendingStyledWritten, submitStyled } from "./study/styled.js";
 import { keepAwake } from "./study/awake.js";
 import { auditQuestion } from "./study/standalone.js";
@@ -189,6 +190,15 @@ export function createApp(rawDeps: AppDeps) {
         .map((n) => ({ id: n.id, course: n.course, file: n.file, date: n.date, title: n.title, sample: n.sample, snippet: noteSnippet(n.body), words: n.body.split(/\s+/).length }))
         .sort((a, b) => b.date.localeCompare(a.date) || a.title.localeCompare(b.title)),
     );
+  });
+
+  /** A suggested class for each note in the Inbox, from how its words match each class's notes. No AI. */
+  app.get("/api/notes/suggestions", (_req, res) => {
+    const c = current();
+    const all = loadNotes("all", c.dir, idsOf(c.courses));
+    const filed = all.filter((n) => n.course !== "unsorted");
+    const s = new Suggester(filed, c.courses);
+    res.json(all.filter((n) => n.course === "unsorted").map((n) => ({ file: n.file, title: n.title, suggestion: s.suggest(n) ?? null })));
   });
 
   app.patch("/api/notes/:course/:file", (req, res) => {
