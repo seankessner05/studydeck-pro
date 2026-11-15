@@ -4,6 +4,7 @@ import { genPanelHtml, resumeGeneration } from "./generate.js";
 import { loadQuizHome, renderQuizDone, renderQuizHome, renderQuizPlay, subSwitch } from "./quiz.js";
 import { loadStudyMore, renderStudyMore } from "./studyhub.js";
 import { MT, renderMatch } from "./match.js";
+import { CT, cardToolsHtml, offerUndo } from "./cardtools.js";
 
 // ---- study ----
 export const GRADE_LABEL = { 1: "Again", 2: "Hard", 3: "Good", 4: "Easy" };
@@ -155,7 +156,8 @@ export function renderPlayer() {
       <div class="text-2xl leading-snug font-extrabold md:text-3xl">${esc(card.front)}</div>
       ${S.revealed ? `<div class="my-5 h-px w-24 bg-slate-200 dark:bg-ink-600"></div><div class="whitespace-pre-wrap text-lg leading-relaxed text-slate-700 dark:text-slate-200">${esc(card.back)}</div>${receipt}` : ""}
     </div>
-    ${buttons}
+    ${CT.editing ? "" : buttons}
+    ${S.revealed ? cardToolsHtml(card) : ""}
     <div class="text-center text-[11px] font-semibold text-slate-400">Be honest. The scheduler uses your rating to decide when you see this again. Esc to leave.</div>
   </div>`;
 }
@@ -178,7 +180,11 @@ export async function rateCard(grade) {
     if (grade >= 2) S.correct++;
     state.streak = d.streak;
     // A missed card comes back in a few minutes, so it returns later in this same session.
-    if (d.card.due - Date.now() < REQUEUE_WITHIN_MS) S.queue.push({ ...card, ...d.card, previews: d.previews });
+    const requeued = d.card.due - Date.now() < REQUEUE_WITHIN_MS;
+    if (requeued) S.queue.push({ ...card, ...d.card, previews: d.previews });
+    CT.editing = false;
+    CT.flagging = false;
+    offerUndo(card, grade, requeued);
     S.idx++;
     S.revealed = false;
     S.cardT0 = Date.now();

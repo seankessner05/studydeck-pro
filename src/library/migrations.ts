@@ -301,4 +301,15 @@ export const MIGRATIONS: Migration[] = [
       CREATE INDEX idx_styled_course ON styled_sittings (course, started_at);
     `,
   },
+  {
+    version: 10,
+    name: "study: undo a rating, edit and flag cards",
+    sql: `
+      ALTER TABLE reviews ADD COLUMN fsrs_before TEXT;   -- the card's schedule before this rating, so it can be undone
+      ALTER TABLE cards ADD COLUMN edited_at INTEGER;    -- set when you change a card's wording
+      ALTER TABLE cards ADD COLUMN flag TEXT;            -- why you flagged it: wrong | unclear | not_on_exam | other
+      ALTER TABLE cards ADD COLUMN flag_note TEXT;
+      ALTER TABLE cards ADD COLUMN flagged_at INTEGER;
+    `,
+  },
 ];

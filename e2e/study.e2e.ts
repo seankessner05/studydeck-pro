@@ -288,3 +288,47 @@ test.describe("the browser enforces the security rules too", () => {
     expect(status).toBe(415);
   });
 });
+
+test.describe("fixing cards while studying", () => {
+  test("undo a rating, edit a card, and flag one out of the session", async ({ page }) => {
+    const problems = watch(page);
+    for (let i = 0; i < 3; i++) {
+      const made = await page.request.post("/api/study/cards", { data: { course: "ECON300", front: `Fix-me card ${i} ${Date.now()}`, back: "Some answer." } });
+      expect(made.ok()).toBe(true);
+    }
+    await openStudy(page);
+    await page.locator("#startStudy").click();
+    const reviews = async () => (await api(page, "/api/study/today?course=all")).accuracy.reviews;
+    const question = () => page.locator("#studyBody .flip > div").nth(1).innerText();
+    const before = await reviews();
+
+    // rate, then undo: the card comes back with its answer showing, and the review is gone
+    await page.locator("#revealBtn").click();
+    const front = await question();
+    await page.locator('[data-grade="4"]').click();
+    await expect(page.locator("#toast")).toContainText("Rated Easy");
+    expect(await reviews()).toBe(before + 1);
+    await page.locator("[data-toast-action]").click();
+    await expect(page.locator("[data-grade]")).toHaveCount(4);
+    expect(await question()).toBe(front);
+    expect(await reviews()).toBe(before);
+
+    // edit the wording
+    await page.locator("[data-ct-edit]").click();
+    await page.locator('[data-ct-field="back"]').fill("A better answer, in my own words.");
+    await page.locator("[data-ct-form] button:not([type])").click();
+    await expect(page.locator("#toast")).toContainText("Card saved");
+    await expect(page.locator("#studyBody")).toContainText("A better answer, in my own words.");
+    await expect(page.locator("#studyBody")).toContainText("edited by you");
+
+    // flag it: it leaves the session; undo puts it back
+    const left = await page.locator("#studyBody").innerText();
+    await page.locator("[data-ct-flag-open]").click();
+    await page.locator('[data-ct-flag="unclear"]').click();
+    await expect(page.locator("#toast")).toContainText("flagged");
+    await page.locator("[data-toast-action]").click();
+    await expect.poll(question).toBe(front);
+    expect(left).toContain("A better answer");
+    expect(problems).toEqual([]);
+  });
+});

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { Db } from "../library/db.js";
 import { tx } from "./db.js";
+import { normalize } from "../citations.js";
 import { deserialize, newCard, preview, review, serialize, type Grade, type Preview } from "./fsrs.js";
 import type { GeneratedCard } from "./cardgen.js";
 
@@ -25,6 +26,10 @@ export interface CardRow {
   lapses: number;
   suspended: boolean;
   createdAt: number;
+  /** When you last changed the wording (null: as written) */
+  editedAt: number | null;
+  /** Why you flagged it, if you did */
+  flag: string | null;
 }
 
 export interface NewCardInput {
@@ -46,6 +51,7 @@ function toRow(r: any): CardRow {
   return {
     id: r.id, course: r.course, noteId: r.note_id, section: r.section, front: r.front, back: r.back, quote: r.quote,
     origin: r.origin, state: r.state, due: r.due, reps: r.reps, lapses: r.lapses, suspended: !!r.suspended, createdAt: r.created_at,
+    editedAt: r.edited_at ?? null, flag: r.flag ?? null,
   };
 }
 
@@ -176,8 +182,8 @@ export async function reviewCard(db: Db, id: string, grade: Grade, now = new Dat
     db.prepare("UPDATE cards SET fsrs = ?, due = ?, state = ?, reps = ?, lapses = ? WHERE id = ?").run(
       serialize(result.card), result.card.dueAt.getTime(), result.card.state, result.card.reps, result.card.lapses, id,
     );
-    db.prepare("INSERT INTO reviews (card_id, course, grade, state_before, reviewed_at, scheduled_days, ms_taken) VALUES (?, ?, ?, ?, ?, ?, ?)").run(
-      id, row.course, grade, row.state, now.getTime(), result.scheduledDays, msTaken ?? null,
+    db.prepare("INSERT INTO reviews (card_id, course, grade, state_before, reviewed_at, scheduled_days, ms_taken, fsrs_before) VALUES (?, ?, ?, ?, ?, ?, ?, ?)").run(
+      id, row.course, grade, row.state, now.getTime(), result.scheduledDays, msTaken ?? null, row.fsrs,
     );
   });
   return { card: getCard(db, id)!, previews: await preview(result.card, now), scheduledDays: result.scheduledDays };
@@ -267,4 +273,66 @@ export function coverage(db: Db): Map<string, NoteCoverage> {
   }
   for (const r of db.prepare("SELECT note_id, note_version FROM gen_log").all() as { note_id: string; note_version: string }[]) add(get(r.note_id), r.note_version);
   return out;
+}
+
+// ---------- changing a card ----------
+
+/** How long after a rating it can still be undone. */
+export const UNDO_WINDOW_MS = 10 * 60_000;
+
+/**
+ * Put a card back exactly as it was before its most recent rating, and forget that rating. Only the latest rating of
+ * a card, made in the last few minutes, can be undone (older ones have shaped everything scheduled since).
+ */
+export async function undoLastReview(db: Db, id: string, now = new Date()): Promise<{ card: CardRow; previews: Preview[] }> {
+  const r = db.prepare("SELECT id, reviewed_at, fsrs_before FROM reviews WHERE card_id = ? ORDER BY reviewed_at DESC, id DESC LIMIT 1").get(id) as { id: number; reviewed_at: number; fsrs_before: string | null } | undefined;
+  if (!r) throw new CardError("This card hasn't been rated, so there's nothing to undo.");
+  if (!r.fsrs_before) throw new CardError("That rating was made before undo existed, so it can't be undone.");
+  if (now.getTime() - r.reviewed_at > UNDO_WINDOW_MS) throw new CardError("Only a rating from the last 10 minutes can be undone.");
+  const before = deserialize(r.fsrs_before);
+  tx(db, () => {
+    db.prepare("UPDATE cards SET fsrs = ?, due = ?, state = ?, reps = ?, lapses = ? WHERE id = ?").run(r.fsrs_before, before.dueAt.getTime(), before.state, before.reps, before.lapses, id);
+    db.prepare("DELETE FROM reviews WHERE id = ?").run(r.id);
+  });
+  return { card: getCard(db, id)!, previews: await preview(before, now) };
+}
+
+export interface CardEdit {
+  front?: string;
+  back?: string;
+  quote?: string | null;
+}
+
+/**
+ * Change a card's wording. A generated card's receipt quote must still be found word for word in its lecture
+ * (pass the lecture's text); the card is marked as edited by you, so it's clear the wording is no longer Claude's.
+ */
+export function editCard(db: Db, id: string, edit: CardEdit, noteBody: string | undefined, now = new Date()): CardRow {
+  const row = db.prepare("SELECT * FROM cards WHERE id = ?").get(id) as any;
+  if (!row) throw new CardError("Card not found.");
+  const front = edit.front === undefined ? row.front : String(edit.front).trim();
+  const back = edit.back === undefined ? row.back : String(edit.back).trim();
+  const quote = edit.quote === undefined ? row.quote : edit.quote === null ? null : String(edit.quote).trim() || null;
+  if (!front || !back) throw new CardError("A card needs both a front and a back.");
+  if (front.length > 500 || back.length > 2000) throw new CardError("That's too long for a flashcard. Split it into two cards.");
+  if (quote && quote !== row.quote) {
+    if (!noteBody) throw new CardError("The lecture this card came from isn't available, so a new quote can't be checked.");
+    if (!normalize(noteBody).includes(normalize(quote))) throw new CardError("That quote isn't word for word in the lecture. Copy it exactly, or leave the old one.");
+  }
+  if (front === row.front && back === row.back && quote === row.quote) return toRow(row);
+  db.prepare("UPDATE cards SET front = ?, back = ?, quote = ?, edited_at = ? WHERE id = ?").run(front, back, quote, now.getTime(), id);
+  return getCard(db, id)!;
+}
+
+export const FLAGS = ["wrong", "unclear", "not_on_exam", "other"] as const;
+export type Flag = (typeof FLAGS)[number];
+
+/** Flag a card as bad (it stops appearing in sessions) or clear the flag (it comes back). */
+export function flagCard(db: Db, id: string, flag: Flag | null, note = "", now = new Date()): CardRow {
+  if (flag !== null && !FLAGS.includes(flag)) throw new CardError("Unknown flag.");
+  const changed = flag === null
+    ? db.prepare("UPDATE cards SET flag = NULL, flag_note = NULL, flagged_at = NULL, suspended = 0 WHERE id = ?").run(id)
+    : db.prepare("UPDATE cards SET flag = ?, flag_note = ?, flagged_at = ?, suspended = 1 WHERE id = ?").run(flag, note.slice(0, 300) || null, now.getTime(), id);
+  if (!Number(changed.changes)) throw new CardError("Card not found.");
+  return getCard(db, id)!;
 }

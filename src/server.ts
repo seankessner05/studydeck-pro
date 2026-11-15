@@ -13,7 +13,7 @@ import { answerQuestion } from "./answer.js";
 import { appendMessage, clearChat, loadChats, studyStreak, type ChatMessage } from "./chats.js";
 import { MAX_NEW_PER_DAY, MIN_NEW_PER_DAY, loadSettings, saveSettings, validNewPerDay, type Settings } from "./settings.js";
 import { studyDb } from "./study/db.js";
-import { CardError, accuracy, addCard, buildSession, counts, coverage, forecast, listCards, reviewCard, studyDays } from "./study/cards.js";
+import { CardError, FLAGS, accuracy, addCard, buildSession, counts, coverage, editCard, flagCard, forecast, getCard, listCards, reviewCard, setSuspended, studyDays, undoLastReview, type Flag } from "./study/cards.js";
 import { QuizError, answerQuestion as recordQuizAnswer, finishQuiz, getQuestion, listQuestions, questionCoverage, quizAccuracy, quizCounts, startQuiz } from "./study/questions.js";
 import { QUIZ_TARGET } from "./study/quizgen.js";
 import { PROBLEM_TARGET } from "./study/problemgen.js";
@@ -323,6 +323,33 @@ export function createApp(rawDeps: AppDeps) {
     const { cardId, grade, msTaken } = req.body ?? {};
     const result = await reviewCard(sdb(), String(cardId ?? ""), Number(grade) as 1 | 2 | 3 | 4, new Date(), Number.isFinite(msTaken) ? Number(msTaken) : undefined);
     res.json({ ...result, streak: streakNow() });
+  }));
+
+  app.post("/api/study/review/undo", studyRoute(async (req, res) => {
+    res.json(await undoLastReview(sdb(), String(req.body?.cardId ?? "")));
+  }));
+
+  /** Change a card: its wording (a new quote is checked against its lecture), suspend it, or flag it as bad. */
+  app.patch("/api/study/cards/:id", studyRoute((req, res) => {
+    const id = String(req.params.id);
+    const b = req.body ?? {};
+    const db = sdb();
+    let card = getCard(db, id);
+    if (!card) return res.status(404).json({ error: "Card not found." });
+    if (b.front !== undefined || b.back !== undefined || b.quote !== undefined) {
+      const cur = current();
+      const note = card.noteId ? loadNotes(card.course, cur.dir, activeIdsOf(cur.courses)).find((n) => n.id === card!.noteId) : undefined;
+      card = editCard(db, id, { front: b.front, back: b.back, quote: b.quote }, note?.body);
+    }
+    if (typeof b.suspended === "boolean") {
+      setSuspended(db, id, b.suspended);
+      card = getCard(db, id)!;
+    }
+    if (b.flag !== undefined) {
+      if (b.flag !== null && !(FLAGS as readonly string[]).includes(b.flag)) return res.status(400).json({ error: "Unknown flag." });
+      card = flagCard(db, id, b.flag as Flag | null, typeof b.flagNote === "string" ? b.flagNote : "");
+    }
+    res.json(card);
   }));
 
   app.get("/api/study/cards", studyRoute((req, res) => {
