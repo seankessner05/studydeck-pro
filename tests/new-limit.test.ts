@@ -6,7 +6,7 @@ import type { Server } from "node:http";
 import { createApp } from "../src/server";
 import { DEFAULT_NEW_PER_DAY, MAX_NEW_PER_DAY, MIN_NEW_PER_DAY, loadSettings, saveSettings, validNewPerDay } from "../src/settings";
 import { closeStudyDbs, studyDb } from "../src/study/db";
-import { addCard, buildSession, counts } from "../src/study/cards";
+import { addCard, buildSession, counts, reviewCard } from "../src/study/cards";
 import type { Runner } from "../src/claude";
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), "sd-limit-"));
@@ -56,6 +56,22 @@ describe("the new-cards-per-day setting", () => {
     expect(counts(db, "A", now, 100).newAvailable).toBe(60); // can't offer more than exist
     expect(await buildSession(db, "A", now, 120, 35)).toHaveLength(35);
     expect(await buildSession(db, "A", now, 20, 35)).toHaveLength(20); // a session's own cap still applies
+  });
+
+  it("applies the limit to each class, also under Everything", async () => {
+    const db = studyDb(tmp());
+    const now = new Date(2026, 10, 14, 10);
+    for (const course of ["A", "B"]) for (let i = 0; i < 40; i++) await addCard(db, { course, front: `${course} card ${i}`, back: "x" }, now);
+    expect(counts(db, "all", now, 30).newAvailable).toBe(60);
+    const session = await buildSession(db, "all", now, 120, 30);
+    expect(session).toHaveLength(60);
+    expect(session.filter((c) => c.course === "A")).toHaveLength(30);
+    // interleaved, so a short session still mixes classes
+    expect(new Set((await buildSession(db, "all", now, 4, 30)).map((c) => c.course))).toEqual(new Set(["A", "B"]));
+    // studying A's 30 new cards today leaves A no room and B untouched
+    for (const c of session.filter((x) => x.course === "A")) await reviewCard(db, c.id, 3, now);
+    expect(counts(db, "A", now, 30).newAvailable).toBe(0);
+    expect(counts(db, "all", now, 30).newAvailable).toBe(30);
   });
 
   it("is saved through the API and used by the Study screen's counts and sessions", async () => {

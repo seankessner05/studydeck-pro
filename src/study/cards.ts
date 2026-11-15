@@ -94,6 +94,18 @@ function newIntroducedToday(db: Db, course: string, now: number): number {
   );
 }
 
+/**
+ * How many new cards each class may still introduce today. The limit is per class, also when studying "Everything":
+ * with a limit of 30 and two classes, Everything can show up to 60 new cards.
+ */
+function newRoomByCourse(db: Db, course: string, now: number, newPerDay: number): Map<string, number> {
+  const sc = scope(course);
+  const rows = db.prepare(`SELECT course, COUNT(*) n FROM cards WHERE ${sc.sql} AND suspended = 0 AND state = 0 GROUP BY course`).all(...sc.args) as { course: string; n: number }[];
+  const out = new Map<string, number>();
+  for (const r of rows) out.set(r.course, Math.min(Number(r.n), Math.max(0, newPerDay - newIntroducedToday(db, r.course, now))));
+  return out;
+}
+
 export interface Counts {
   /** Reviews that are due (state: review) */
   due: number;
@@ -114,7 +126,7 @@ export function counts(db: Db, course: string, now = new Date(), newPerDay = NEW
   return {
     due: one("suspended = 0 AND state = 2 AND due <= ?", n),
     learning: one("suspended = 0 AND state IN (1, 3) AND due <= ?", n),
-    newAvailable: Math.min(newTotal, Math.max(0, newPerDay - newIntroducedToday(db, course, n))),
+    newAvailable: Math.min(newTotal, [...newRoomByCourse(db, course, n, newPerDay).values()].reduce((a, b) => a + b, 0)),
     total: one("1=1"),
     suspended: one("suspended = 1"),
   };
@@ -132,10 +144,14 @@ export async function buildSession(db: Db, course: string, now = new Date(), lim
     .prepare(`SELECT * FROM cards WHERE ${sc.sql} AND suspended = 0 AND state != 0 AND due <= ? ORDER BY due ASC LIMIT ?`)
     .all(...sc.args, n, limit)
     .map(toRow);
-  const room = Math.max(0, Math.min(limit - due.length, newPerDay - newIntroducedToday(db, course, n)));
-  const fresh = room
-    ? db.prepare(`SELECT * FROM cards WHERE ${sc.sql} AND suspended = 0 AND state = 0 ORDER BY created_at ASC, rowid ASC LIMIT ?`).all(...sc.args, room).map(toRow)
-    : [];
+  // New cards: each class up to its own daily room, oldest first, interleaved so one class doesn't crowd out the others.
+  const perCourse = [...newRoomByCourse(db, course, n, newPerDay)].map(([c, room]) =>
+    room ? db.prepare("SELECT * FROM cards WHERE course = ? AND suspended = 0 AND state = 0 ORDER BY created_at ASC, rowid ASC LIMIT ?").all(c, room).map(toRow) : [],
+  );
+  const fresh: CardRow[] = [];
+  for (let i = 0; fresh.length < limit - due.length && perCourse.some((l) => i < l.length); i++) {
+    for (const l of perCourse) if (i < l.length && fresh.length < limit - due.length) fresh.push(l[i]);
+  }
   const out: SessionCard[] = [];
   for (const row of [...due, ...fresh]) {
     const stored = db.prepare("SELECT fsrs FROM cards WHERE id = ?").get(row.id) as { fsrs: string };
