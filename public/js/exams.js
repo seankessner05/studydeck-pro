@@ -2,6 +2,7 @@ import { $, S, api, barOf, btnGhost, btnPrimary, courseName, esc, fmtNum, fmtUni
 import { loadStudyToday } from "./cards.js";
 import { KIND_LABEL, LETTER, subSwitch } from "./quiz.js";
 import { refreshAi } from "./panels.js";
+import { figureSvg } from "./graph.js";
 import { loadRealExamInfo, realExamActive, realExamCardHtml, renderRealExam } from "./realexam.js";
 
 // =============================================================== exams and cheat sheets
@@ -127,9 +128,9 @@ export function examItemHtml(it, n) {
   const head = `<div class="mb-2 flex items-center gap-2 text-[11px] font-extrabold uppercase tracking-wider text-slate-400"><span>Question ${n}</span><span>·</span><span>${it.points} ${it.points === 1 ? "point" : "points"}</span>${it.type === "mcq" ? `<span>· ${KIND_LABEL[it.kind]}</span>` : ""}</div>`;
   if (it.type === "mcq") {
     const picked = Array.isArray(a) ? a : [];
-    return `${head}<div class="text-base leading-snug font-extrabold">${esc(it.stem)}</div><div class="mt-3 ${it.kind === "tf" ? "grid grid-cols-2" : "flex flex-col"} gap-2">${it.options.map((o, i) => `<button data-ex-opt="${esc(it.id)}:${i}" class="flex w-full items-center gap-3 rounded-xl border-2 px-3 py-2.5 text-left text-sm font-bold transition ${picked.includes(i) ? "border-brand-500 bg-brand-50 dark:bg-brand-500/15" : "border-slate-200 hover:border-brand-300 dark:border-ink-600"}">${it.kind === "tf" ? "" : `<span class="grid h-6 w-6 shrink-0 place-items-center rounded-lg text-[11px] font-extrabold ${picked.includes(i) ? "bg-brand-500 text-white" : "bg-slate-100 text-slate-500 dark:bg-ink-700"}">${LETTER[i]}</span>`}<span class="flex-1">${esc(o)}</span></button>`).join("")}</div>`;
+    return `${head}<div class="text-base leading-snug font-extrabold">${esc(it.stem)}</div>${figureSvg(it.figure)}<div class="mt-3 ${it.kind === "tf" ? "grid grid-cols-2" : "flex flex-col"} gap-2">${it.options.map((o, i) => `<button data-ex-opt="${esc(it.id)}:${i}" class="flex w-full items-center gap-3 rounded-xl border-2 px-3 py-2.5 text-left text-sm font-bold transition ${picked.includes(i) ? "border-brand-500 bg-brand-50 dark:bg-brand-500/15" : "border-slate-200 hover:border-brand-300 dark:border-ink-600"}">${it.kind === "tf" ? "" : `<span class="grid h-6 w-6 shrink-0 place-items-center rounded-lg text-[11px] font-extrabold ${picked.includes(i) ? "bg-brand-500 text-white" : "bg-slate-100 text-slate-500 dark:bg-ink-700"}">${LETTER[i]}</span>`}<span class="flex-1">${esc(o)}</span></button>`).join("")}</div>`;
   }
-  if (it.type === "problem") return `${head}<div class="text-base leading-relaxed font-bold">${esc(it.stem)}</div><input data-ex-text="${esc(it.id)}" value="${esc(typeof a === "string" ? a : "")}" inputmode="decimal" autocomplete="off" placeholder="Your answer${it.unit ? ` (${esc(it.unit)})` : ""}" class="mt-3 w-full max-w-xs rounded-xl border-2 border-slate-200 bg-white px-3 py-2.5 text-base font-extrabold tabular-nums focus:border-brand-500 focus:outline-none dark:border-ink-600 dark:bg-ink-800" />`;
+  if (it.type === "problem") return `${head}<div class="text-base leading-relaxed font-bold">${esc(it.stem)}</div>${figureSvg(it.figure)}<input data-ex-text="${esc(it.id)}" value="${esc(typeof a === "string" ? a : "")}" inputmode="decimal" autocomplete="off" placeholder="Your answer${it.unit ? ` (${esc(it.unit)})` : ""}" class="mt-3 w-full max-w-xs rounded-xl border-2 border-slate-200 bg-white px-3 py-2.5 text-base font-extrabold tabular-nums focus:border-brand-500 focus:outline-none dark:border-ink-600 dark:bg-ink-800" />`;
   return `${head}<div class="text-base leading-relaxed font-bold">${esc(it.prompt)}</div><textarea data-ex-text="${esc(it.id)}" rows="6" placeholder="Answer in your own words…" class="mt-3 w-full rounded-xl border-2 border-slate-200 bg-white p-3 text-sm leading-relaxed focus:border-brand-500 focus:outline-none dark:border-ink-600 dark:bg-ink-800">${esc(typeof a === "string" ? a : "")}</textarea>`;
 }
 

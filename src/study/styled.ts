@@ -7,6 +7,7 @@ import type { Db } from "../library/db.js";
 import type { Note } from "../notes.js";
 import { parseJsonList } from "./cardgen.js";
 import { MATH_RULE, mathProblem, plainMath } from "./mathtext.js";
+import { GRAPH_SPEC_RULE, GraphError, axisFor, buildFigure, curveMove, equilibriumShift, parseGraph, type GraphSpec } from "./graphs.js";
 import { compute, numberInText, numbersClose, parseNumber, type Step } from "./problemgen.js";
 import { sharedRun, unseenReference, withoutInstructions } from "./standalone.js";
 import type { GradeInput, WrittenGrade } from "./written.js";
@@ -86,9 +87,14 @@ export interface GraphPart extends PartBase {
   kind: "graph";
   /** e.g. "IS-LM" */
   graph: string;
-  curves: { name: string; choices: Shift[]; key: Shift }[];
+  /** Other offered choices that are just as true (a downward-sloping curve that moves up has also moved right). */
+  curves: { name: string; choices: Shift[]; key: Shift; also?: Shift[] }[];
   effects: { name: string; key: Effect }[];
   why: string;
+  /** The graph as equations, with "after" on the curves that move. The app checks the key against it. */
+  plot?: GraphSpec;
+  /** Which curves and variables the app checked from the equations (the rest rely on the no-notes solve). */
+  checked?: string[];
 }
 export type Part = NumberPart | WrittenPart | GraphPart;
 
@@ -142,7 +148,8 @@ export function buildExamPrompts(b: Blueprint, notes: Note[], only?: { section: 
     "PARTS (each part is exactly ONE of these kinds; when the blueprint says \"number + written\", split it into two parts with the same letter, e.g. b) and b) explain)",
     '- "number": the student computes ONE number. You write the computation as a small program: question-level "givens" (name, value, label) plus "steps" (name, label, expr, explain). The LAST step is the answer. expr uses only + - * / ^ ( ), sqrt, ln, log, exp, abs, min, max, round, numbers, and earlier names (givens, earlier steps of this part, and steps of earlier parts of the same question). The app computes every value itself. Every given must be written in the setup or the part\'s prompt.',
     '- "written": the student explains in words. Give a "rubric" of 1 to 5 points, each a short checkable idea the answer must contain, each with a "quote" copied EXACTLY (4 to 25 consecutive words) from one note that teaches it, and the note\'s "noteId". Give a short "model" answer.',
-    '- "graph": the student describes a graph. Give "graph" (the graph\'s name, e.g. "IS-LM" or "saving-investment"), "curves" (1 to 3; each with "name", "choices" from right/left/up/down/steeper/flatter/none, and the correct "key"), "effects" (1 to 3 variables on the axes or in the model; each with "name" and key up/down/same), and "why" (one or two sentences).',
+    '- "graph": the student describes a graph. Give "graph" (the graph\'s name, e.g. "IS-LM" or "saving-investment"), "curves" (1 to 3; each with "name", "choices" from right/left/up/down/steeper/flatter/none, and the correct "key"), "effects" (1 to 3 variables on the axes or in the model; each with "name" and key up/down/same), "why" (one or two sentences), and "figure": the graph as equations, so the app can draw it and check your key. In "figure", every curve named in "curves" appears with the same label, a curve that moves has "after" (its equation after the change), and points[0] is the starting equilibrium where the two curves that set it cross. Name each effect after an axis when it is one ("output", "interest rate").',
+    `  ${GRAPH_SPEC_RULE}`,
     "- Points: each part has the points the blueprint gives; parts that split one lettered part share its points. Each question's parts add up exactly to its points.",
     "",
     "PROFESSOR'S STYLE",
@@ -167,7 +174,7 @@ export function examText(questions: ExamQuestion[]): string {
     .map((q) => {
       const head = `Question ${q.id} (${q.points} points)${q.setup ? `\n${q.setup}` : ""}`;
       const parts = q.parts.map((p) => {
-        if (p.kind === "graph") return `  [${p.id}] (${p.points} points) ${p.prompt}\n    For the ${p.graph} graph, say how each curve moves (${p.curves.map((c) => `"${c.name}": ${c.choices.join("/")}`).join("; ")}) and what happens to ${p.effects.map((e) => `"${e.name}"`).join(", ")} (up/down/same). Use these names exactly.`;
+        if (p.kind === "graph") return `  [${p.id}] (${p.points} points) ${p.prompt}${p.plot ? `\n    [Starting graph shown: ${buildFigure(p.plot).description}]` : ""}\n    For the ${p.graph} graph, say how each curve moves (${p.curves.map((c) => `"${c.name}": ${c.choices.join("/")}`).join("; ")}) and what happens to ${p.effects.map((e) => `"${e.name}"`).join(", ")} (up/down/same). Use these names exactly.`;
         return `  [${p.id}] (${p.points} points) ${p.prompt}${p.kind === "number" && p.unit ? ` (answer in ${p.unit})` : ""}`;
       });
       return `${head}\n${parts.join("\n")}`;
@@ -188,7 +195,7 @@ export function buildExamSolverPrompts(courseName: string, questions: ExamQuesti
 
 // ---------- checking what Claude wrote ----------
 
-export type ExamRejectReason = "malformed" | "points" | "not_self_contained" | "copies_past_exam" | "bad_program" | "given_not_in_text" | "bad_rubric" | "quote_not_found" | "bad_graph" | "bad_math" | "solve_disagrees" | "unanswerable" | "not_checked";
+export type ExamRejectReason = "malformed" | "points" | "not_self_contained" | "copies_past_exam" | "bad_program" | "given_not_in_text" | "bad_rubric" | "quote_not_found" | "bad_graph" | "graph_key_wrong" | "bad_math" | "solve_disagrees" | "unanswerable" | "not_checked";
 
 export const EXAM_REJECT_LABEL: Record<ExamRejectReason, string> = {
   malformed: "malformed",
@@ -201,6 +208,7 @@ export const EXAM_REJECT_LABEL: Record<ExamRejectReason, string> = {
   quote_not_found: "a rubric point's quote isn't in the notes",
   bad_graph: "a graph part's answer is unusable",
   bad_math: "a formula is broken and can't be shown properly",
+  graph_key_wrong: "its answer key disagrees with what the app worked out from the graph's own equations",
   solve_disagrees: "a second solve, without notes, got a different answer",
   unanswerable: "a second solve, without notes, couldn't answer it from the exam",
   not_checked: "the second solve didn't answer every part",
@@ -332,7 +340,36 @@ export function validateExamQuestion(raw: unknown, b: Blueprint, notes: Note[]):
         effects.push({ name, key });
       }
       if (!curves.length || curves.length > 3 || effects.length > 3) return reject("bad_graph", `part ${label}`);
-      parts.push({ id: partId, kind, label, prompt, points, graph: str(pp.graph, 60) || "the graph", curves, effects, why: str(pp.why, 600) });
+      // The figure: the app works out which way each curve moved and where the equilibrium went, and the key must agree.
+      let plot: GraphSpec | undefined;
+      const checked: string[] = [];
+      if (pp.figure !== undefined && pp.figure !== null) {
+        try {
+          plot = parseGraph(pp.figure);
+          if (!plot.points.length) throw new GraphError("the figure needs its starting equilibrium as a point");
+          if (!plot.curves.some((c) => c.after)) throw new GraphError("no curve in the figure moves");
+          const eq = equilibriumShift(plot)!; // throws if the moved curves no longer cross
+          for (const c of curves) {
+            const fc = plot.curves.find((k) => nameKey(k.label) === nameKey(c.name));
+            if (!fc) throw new GraphError(`curve ${c.name} isn't in the figure`);
+            const moves = curveMove(fc, plot);
+            const truthful = c.choices.filter((ch) => moves.has(ch));
+            if (!truthful.includes(c.key)) return reject("graph_key_wrong", `part ${label}: the key says ${c.name} ${c.key}, its equations say ${[...moves].join("/")}`);
+            const also = truthful.filter((ch) => ch !== c.key);
+            if (also.length) c.also = also;
+            checked.push(c.name);
+          }
+          for (const e of effects) {
+            const ax = axisFor(e.name, plot);
+            if (!ax) continue;
+            if (eq[ax] !== e.key) return reject("graph_key_wrong", `part ${label}: the key says ${e.name} ${e.key}, the equilibrium says ${eq[ax]}`);
+            checked.push(e.name);
+          }
+        } catch (err) {
+          return reject("bad_graph", `part ${label}: ${err instanceof GraphError ? err.message : "unusable figure"}`);
+        }
+      }
+      parts.push({ id: partId, kind, label, prompt, points, graph: str(pp.graph, 60) || "the graph", curves, effects, why: str(pp.why, 600), ...(plot ? { plot, checked } : {}) });
     }
   }
 
@@ -381,7 +418,7 @@ export function checkSolve(questions: ExamQuestion[], solved: unknown[]): Map<st
         const curves = (r.curves && typeof r.curves === "object" ? r.curves : {}) as Record<string, unknown>;
         const effects = (r.effects && typeof r.effects === "object" ? r.effects : {}) as Record<string, unknown>;
         const same = (a: unknown, b: string) => typeof a === "string" && a.trim().toLowerCase() === b;
-        if (!p.curves.every((c) => same(lookup(curves, c.name), c.key)) || !p.effects.every((e) => same(lookup(effects, e.name), e.key))) { verdict = "solve_disagrees"; break; }
+        if (!p.curves.every((c) => [c.key, ...(c.also ?? [])].some((k) => same(lookup(curves, c.name), k))) || !p.effects.every((e) => same(lookup(effects, e.name), e.key))) { verdict = "solve_disagrees"; break; }
       }
     }
     out.set(q.id, verdict);
@@ -492,6 +529,15 @@ export async function buildStyledExam(opts: {
 
 export class StyledError extends Error {}
 
+function figureOrNull(plot: GraphSpec | undefined, showAfter = false) {
+  if (!plot) return null;
+  try {
+    return buildFigure(plot, { showAfter });
+  } catch {
+    return null;
+  }
+}
+
 /** What the exam page receives: no keys, steps, rubrics, model answers or explanations. */
 export function publicExam(exam: StyledExam) {
   return {
@@ -501,7 +547,7 @@ export function publicExam(exam: StyledExam) {
       parts: q.parts.map((p) => {
         const base = { id: p.id, kind: p.kind, label: p.label, prompt: p.prompt, points: p.points };
         if (p.kind === "number") return { ...base, unit: p.unit };
-        if (p.kind === "graph") return { ...base, graph: p.graph, curves: p.curves.map((c) => ({ name: c.name, choices: c.choices })), effects: p.effects.map((e) => ({ name: e.name })) };
+        if (p.kind === "graph") return { ...base, graph: p.graph, curves: p.curves.map((c) => ({ name: c.name, choices: c.choices })), effects: p.effects.map((e) => ({ name: e.name })), figure: figureOrNull(p.plot) };
         return base;
       }),
     })),
@@ -558,7 +604,7 @@ function autoGrade(exam: StyledExam, answers: Record<string, unknown>): Map<stri
       out.set(p.id, { id: p.id, earned: correct ? p.points : 0, max: p.points, answered: got !== undefined, graded: true, correct, submitted: got ?? null });
     } else if (p.kind === "graph") {
       const g = (a && typeof a === "object" ? a : {}) as { curves?: Record<string, unknown>; effects?: Record<string, unknown> };
-      const fields = [...p.curves.map((c) => g.curves?.[c.name] === c.key), ...p.effects.map((e) => g.effects?.[e.name] === e.key)];
+      const fields = [...p.curves.map((c) => g.curves?.[c.name] === c.key || (c.also ?? []).includes(g.curves?.[c.name] as Shift)), ...p.effects.map((e) => g.effects?.[e.name] === e.key)];
       const answered = [...p.curves.map((c) => g.curves?.[c.name]), ...p.effects.map((e) => g.effects?.[e.name])].some((x) => typeof x === "string" && x);
       const share = fields.filter(Boolean).length / fields.length;
       out.set(p.id, { id: p.id, earned: Math.round(p.points * share * 2) / 2, max: p.points, answered, graded: true, correct: share === 1, submitted: { curves: g.curves ?? {}, effects: g.effects ?? {} } });
@@ -633,7 +679,9 @@ export function getStyled(db: Db, id: string) {
   const base = { id: r.id, course: r.course, examId: r.exam_id, title: r.title, startedAt: r.started_at, finishedAt: r.finished_at };
   if (!r.finished_at) return { ...base, exam: publicExam(exam), results: null, totals: null, pendingWritten: false };
   const results = new Map((JSON.parse(r.results ?? "[]") as PartResult[]).map((x) => [x.id, x]));
-  return { ...base, exam, results: [...results.values()], totals: totals(exam, results), pendingWritten: [...results.values()].some((x) => !x.graded) };
+  // After handing in: the starting graph, and the answer drawn on it (moved curves dashed).
+  const shown = { ...exam, questions: exam.questions.map((q) => ({ ...q, parts: q.parts.map((p) => (p.kind === "graph" ? { ...p, figure: figureOrNull(p.plot), answerFigure: figureOrNull(p.plot, true) } : p)) })) };
+  return { ...base, exam: shown, results: [...results.values()], totals: totals(exam, results), pendingWritten: [...results.values()].some((x) => !x.graded) };
 }
 
 export function listStyled(db: Db, course: string, limit = 20) {

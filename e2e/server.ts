@@ -34,7 +34,7 @@ note("ECON301", "2026-11-03_hostile.md", `Hostile ${HOSTILE}`, "2026-11-03", `##
 fs.mkdirSync(path.join(notesDir, "unsorted"), { recursive: true });
 note("unsorted", "2026-11-04_pricing-review.md", "Pricing review", "2026-11-04", "## Monopoly\n\n- A monopolist sets MR = MC, then reads the price off the demand curve\n- Marginal cost (MC) is the derivative of the cost function; fixed cost does not change with output\n- Deadweight loss shrinks consumer surplus");
 note("unsorted", "2026-11-05_visa.md", "Visa appointment", "2026-11-05", "Bring the passport, two photos and the acceptance letter to the consulate on Tuesday.");
-note("ECON300", "2026-10-13_golden-rule.md", "Golden rule", "2026-10-13", "## Golden rule\n\n- The golden rule level of capital maximizes consumption per worker\n- At the golden rule, MPK = depreciation plus population growth");
+const golden = note("ECON300", "2026-10-13_golden-rule.md", "Golden rule", "2026-10-13", "## Golden rule\n\n- The golden rule level of capital maximizes consumption per worker\n- At the golden rule, MPK = depreciation plus population growth");
 
 const db = studyDb(dataDir);
 const q = (stem: string, over: Partial<GeneratedQuestion> = {}): GeneratedQuestion => ({
@@ -56,6 +56,14 @@ addGeneratedQuestions(db, costs, "v1", [
 addGeneratedQuestions(db, monopoly, "v1", [
   q("With inverse demand P = 40 - Q, what is marginal revenue?", { options: ["40 - 2Q", "40 - Q", "40Q - Q^2", "20 - Q"], answer: [0], explanation: "Revenue is 40Q - Q^2, so MR = 40 - 2Q.", quote: "MR = 40 - 2Q", section: "Marginal revenue" }),
   q("What does a monopolist set equal to choose output?", { options: ["MR and MC", "P and MC", "P and AC", "MR and P"], answer: [0], explanation: "MR = MC.", quote: "A monopolist sets MR = MC", section: "Marginal revenue" }),
+]);
+// A question with a graph the app draws from equations (Solow steady state: saving meets break-even investment at k = 81).
+addGeneratedQuestions(db, golden, "v1", [
+  q("On the graph, saving per worker meets break-even investment at point SS. What happens to capital per worker if the economy starts to the left of SS?", {
+    options: ["It rises toward SS", "It falls toward zero", "It stays where it is", "It jumps straight to SS"], answer: [0],
+    explanation: "Left of SS, saving exceeds break-even investment, so capital per worker grows.", quote: "The golden rule level of capital maximizes consumption per worker", section: "Golden rule",
+    graph: { x: { label: "Capital per worker (k)", min: 0, max: 120 }, y: { label: "Investment per worker", min: 0, max: 12 }, curves: [{ label: "sf(k)", of: "y", expr: "0.9*x^0.5", dashed: false }, { label: "(n+d)k", of: "y", expr: "0.1*x", dashed: false }], points: [{ label: "SS", on: ["sf(k)", "(n+d)k"] }], values: true },
+  }),
 ]);
 addGeneratedProblems(db, monopoly, "v1", [
   {

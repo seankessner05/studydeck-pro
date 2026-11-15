@@ -3,6 +3,8 @@ import type { Db } from "../library/db.js";
 import { tx } from "./db.js";
 import { numbersClose, parseNumber, type Given, type GeneratedProblem, type Step } from "./problemgen.js";
 import { QuizError } from "./questions.js";
+import { figureOf } from "./figure.js";
+import type { Figure } from "./graphs.js";
 
 const DAY = 86_400_000;
 const startOfDay = (ms: number) => new Date(new Date(ms).setHours(0, 0, 0, 0)).getTime();
@@ -21,6 +23,7 @@ export interface ProblemRow {
   answer: number;
   quote: string | null;
   createdAt: number;
+  figure: Figure | null;
 }
 
 /** What the practice screen gets: the problem and the label of its first step as a hint, but no numbers from the solution. */
@@ -33,18 +36,21 @@ export interface PublicProblem {
   unit: string;
   difficulty: 1 | 2 | 3;
   hint: { label: string; explain: string };
+  figure: Figure | null;
 }
 
 function toRow(r: any): ProblemRow {
   return {
     id: r.id, course: r.course, noteId: r.note_id, section: r.section, stem: r.stem, givens: JSON.parse(r.givens), steps: JSON.parse(r.steps),
     unit: r.unit, difficulty: r.difficulty, answer: r.answer, quote: r.quote, createdAt: r.created_at,
+    figure: figureOf(r.graph),
   };
 }
 
 const toPublic = (p: ProblemRow): PublicProblem => ({
   id: p.id, course: p.course, noteId: p.noteId, section: p.section, stem: p.stem, unit: p.unit, difficulty: p.difficulty,
   hint: { label: p.steps[0].label, explain: p.steps[0].explain },
+  figure: p.figure,
 });
 
 // ---------- the bank ----------
@@ -56,11 +62,11 @@ export function existingProblemStems(db: Db, course: string): string[] {
 export function addGeneratedProblems(db: Db, note: { id: string; course: string }, version: string, problems: GeneratedProblem[], now = new Date()): number {
   tx(db, () => {
     const insert = db.prepare(
-      `INSERT INTO problems (id, course, note_id, section, stem, givens, steps, unit, difficulty, answer, quote, note_version, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO problems (id, course, note_id, section, stem, givens, steps, unit, difficulty, answer, quote, note_version, created_at, graph)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     problems.forEach((p, i) =>
-      insert.run(randomUUID(), note.course, note.id, p.section, p.stem, JSON.stringify(p.givens), JSON.stringify(p.steps), p.unit, p.difficulty, p.answer, p.quote, version, now.getTime() + i),
+      insert.run(randomUUID(), note.course, note.id, p.section, p.stem, JSON.stringify(p.givens), JSON.stringify(p.steps), p.unit, p.difficulty, p.answer, p.quote, version, now.getTime() + i, p.graph ? JSON.stringify(p.graph) : null),
     );
   });
   return problems.length;

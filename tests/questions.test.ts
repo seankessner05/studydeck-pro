@@ -66,7 +66,7 @@ describe("a quiz sitting", () => {
     const db = seeded();
     const { questions } = startQuiz(db, { course: "ECON301", length: 10 });
     expect(questions).toHaveLength(5);
-    for (const x of questions) expect(Object.keys(x).sort()).toEqual(["course", "id", "kind", "noteId", "options", "section", "stem"]);
+    for (const x of questions) expect(Object.keys(x).sort()).toEqual(["course", "figure", "id", "kind", "noteId", "options", "section", "stem"]);
   });
 
   it("limits to the class, the lectures and the length asked for", () => {

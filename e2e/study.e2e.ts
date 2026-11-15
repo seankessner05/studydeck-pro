@@ -367,6 +367,26 @@ test.describe("math", () => {
   });
 });
 
+test.describe("graphs", () => {
+  test("a quiz question shows its graph, drawn by the app and described for screen readers", async ({ page }) => {
+    const problems = watch(page);
+    await page.goto("/");
+    // on a phone the class list sits in a closed drawer; choosing the class directly is enough here
+    await page.locator('[data-course="ECON300"]').dispatchEvent("click");
+    await expect(page.locator("main")).toContainText("Macroeconomics");
+    await page.locator('[data-view="study"]').click();
+    await page.locator('#studyBody [data-sub="quiz"]').click();
+    await page.locator("#startQuiz").click();
+    const figure = page.locator("#studyBody figure svg[role=img]");
+    await expect(figure).toBeVisible();
+    await expect(figure).toHaveAttribute("aria-label", /SS where sf\(k\) meets \(n\+d\)k, at Capital per worker \(k\) = 81, Investment per worker = 8\.1/);
+    await expect(figure.locator("path")).not.toHaveCount(0);
+    await expect(figure).toContainText("SS");
+    await expect(figure).toContainText("81");
+    expect(problems).toEqual([]);
+  });
+});
+
 test.describe("today", () => {
   test("Study opens on Today; Start walks the plan step by step, and the run can be resumed", async ({ page }) => {
     const problems = watch(page);

@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 import type { Db } from "../library/db.js";
 import { tx } from "./db.js";
 import type { GeneratedQuestion, QKind } from "./quizgen.js";
+import { figureOf } from "./figure.js";
+import type { Figure } from "./graphs.js";
 
 const DAY = 86_400_000;
 const startOfDay = (ms: number) => new Date(new Date(ms).setHours(0, 0, 0, 0)).getTime();
@@ -23,6 +25,8 @@ export interface QuestionRow {
   explanation: string;
   quote: string | null;
   createdAt: number;
+  /** A graph shown with the question, drawn from a checked spec. */
+  figure: Figure | null;
 }
 
 /** A question as the quiz player sees it: no key, no explanation, no quote until it has been answered. */
@@ -34,16 +38,18 @@ export interface PublicQuestion {
   kind: QKind;
   stem: string;
   options: string[];
+  figure: Figure | null;
 }
 
 function toRow(r: any): QuestionRow {
   return {
     id: r.id, course: r.course, noteId: r.note_id, section: r.section, kind: r.kind, stem: r.stem,
     options: JSON.parse(r.options), answer: JSON.parse(r.answer), explanation: r.explanation, quote: r.quote, createdAt: r.created_at,
+    figure: figureOf(r.graph),
   };
 }
 
-const toPublic = (q: QuestionRow): PublicQuestion => ({ id: q.id, course: q.course, noteId: q.noteId, section: q.section, kind: q.kind, stem: q.stem, options: q.options });
+const toPublic = (q: QuestionRow): PublicQuestion => ({ id: q.id, course: q.course, noteId: q.noteId, section: q.section, kind: q.kind, stem: q.stem, options: q.options, figure: q.figure });
 
 // ---------- the bank ----------
 
@@ -56,12 +62,12 @@ export function existingStems(db: Db, course: string): string[] {
 export function addGeneratedQuestions(db: Db, note: { id: string; course: string }, version: string, questions: GeneratedQuestion[], now = new Date()): number {
   tx(db, () => {
     const insert = db.prepare(
-      `INSERT INTO questions (id, course, note_id, section, kind, stem, options, answer, explanation, quote, note_version, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO questions (id, course, note_id, section, kind, stem, options, answer, explanation, quote, note_version, created_at, graph)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     // Increasing timestamps keep a lecture's questions in the order they were written.
     questions.forEach((q, i) =>
-      insert.run(randomUUID(), note.course, note.id, q.section, q.kind, q.stem, JSON.stringify(q.options), JSON.stringify(q.answer), q.explanation, q.quote, version, now.getTime() + i),
+      insert.run(randomUUID(), note.course, note.id, q.section, q.kind, q.stem, JSON.stringify(q.options), JSON.stringify(q.answer), q.explanation, q.quote, version, now.getTime() + i, q.graph ? JSON.stringify(q.graph) : null),
     );
   });
   return questions.length;

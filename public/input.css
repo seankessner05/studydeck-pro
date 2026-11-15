@@ -140,3 +140,7 @@ html { -webkit-font-smoothing: antialiased; }
     height: 1.25rem;
   }
 }
+
+/* Graph labels get a thin outline in the card's background colour, so text stays readable where it crosses a line. */
+.graph-text { paint-order: stroke; stroke: #fff; stroke-width: 3.5px; stroke-linejoin: round; }
+.dark .graph-text { stroke: var(--color-ink-800); }

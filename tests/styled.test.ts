@@ -204,3 +204,53 @@ describe("sitting and grading", () => {
     expect(loadBlueprint(dir, "../ECON300")?.name).toBe("Test format"); // the course id can't leave the folder
   });
 });
+
+describe("graph parts with a figure: the app works out the answer from the equations", () => {
+  const islm = {
+    x: { label: "Output (Y)", max: 2000 }, y: { label: "Interest rate (r)", max: 12 },
+    curves: [{ label: "IS", y: "12 - 0.008*x", after: "14 - 0.008*x" }, { label: "LM", y: "0.004*x" }],
+    points: [{ label: "E1", on: ["IS", "LM"] }],
+  };
+  const withFigure = (over: object = {}, figure: object = islm) => ({ ...q2, parts: [{ ...q2.parts[0], figure, ...over }] });
+
+  it("accepts a key that matches the equations, and records what it checked", () => {
+    const v = validateExamQuestion(withFigure(), blueprint, [note]);
+    expect(v.rejected).toBeUndefined();
+    const part = v.question!.parts[0] as any;
+    expect(part.checked).toEqual(["IS", "LM", "output", "interest rate"]);
+  });
+
+  it("rejects a key the equations contradict", () => {
+    const wrongCurve = withFigure({ curves: [{ name: "IS", choices: ["right", "left", "none"], key: "left" }, { name: "LM", choices: ["right", "left", "none"], key: "none" }] });
+    expect(validateExamQuestion(wrongCurve, blueprint, [note]).rejected).toMatchObject({ reason: "graph_key_wrong", detail: expect.stringContaining("IS left") });
+    const wrongEffect = withFigure({ effects: [{ name: "output", key: "up" }, { name: "interest rate", key: "down" }] });
+    expect(validateExamQuestion(wrongEffect, blueprint, [note]).rejected).toMatchObject({ reason: "graph_key_wrong", detail: expect.stringContaining("interest rate") });
+    const missing = withFigure({}, { ...islm, curves: [islm.curves[0], { label: "MP", y: "0.004*x" }], points: [{ label: "E1", on: ["IS", "MP"] }] });
+    expect(validateExamQuestion(missing, blueprint, [note]).rejected).toMatchObject({ reason: "bad_graph", detail: expect.stringContaining("LM isn't in the figure") });
+  });
+
+  it("gives credit for every offered word that is true: IS moving right has also moved up", () => {
+    const both = withFigure({ curves: [{ name: "IS", choices: ["right", "up", "left", "none"], key: "right" }, { name: "LM", choices: ["right", "left", "none"], key: "none" }] });
+    const q = validateExamQuestion(both, blueprint, [note]).question!;
+    expect((q.parts[0] as any).curves[0].also).toEqual(["up"]);
+    const exam: StyledExam = { title: "t", minutes: 50, instructions: "", sections: [{ title: "Section 2", instructions: "", choose: null, points: 4 }], questions: [{ ...q, section: 1 }] };
+    const db = studyDb(tmp());
+    const id = createStyledSitting(db, { course: "ECON300", examId: null, exam }, new Date());
+    submitStyled(db, id, { [q.parts[0].id]: { curves: { IS: "up", LM: "none" }, effects: { output: "up", "interest rate": "up" } } }, new Date());
+    const done = getStyled(db, id);
+    expect(done.results![0]).toMatchObject({ earned: 4, correct: true });
+    // the finished exam carries the starting graph and the answer graph (moved IS dashed)
+    const part = (done.exam as any).questions[0].parts[0];
+    expect(part.answerFigure.curves.map((c: any) => c.label)).toEqual(["IS", "LM", "IS′"]);
+  });
+
+  it("shows the starting graph during the exam, never the moved curve, and describes it to the solver", () => {
+    const q = validateExamQuestion(withFigure(), blueprint, [note]).question!;
+    const pub = publicExam({ course: "ECON300", title: "t", minutes: 50, instructions: "", sections: [], questions: [q] } as any);
+    const part = pub.questions[0].parts[0] as any;
+    expect(part.figure.curves.map((c: any) => c.label)).toEqual(["IS", "LM"]);
+    expect(part.figure.curves.some((c: any) => c.after || c.label.includes("′"))).toBe(false);
+    expect(JSON.stringify(part)).not.toContain("14 - 0.008"); // no equations, so nothing about the move
+    expect(buildExamSolverPrompts("Macro", [q]).prompt).toContain("[Starting graph shown: Graph: horizontal axis Output (Y)");
+  });
+});

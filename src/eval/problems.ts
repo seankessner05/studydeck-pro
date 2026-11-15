@@ -6,6 +6,7 @@ import { SAMPLE_DIR, type Note } from "../notes.js";
 import { DATA_DIR } from "../paths.js";
 import { P_REJECT_LABEL, generateProblemsForNote, type GeneratedProblem, type PRejectReason, type PRejected } from "../study/problemgen.js";
 import { pickEvalNotes } from "./cards.js";
+import { loadNotes } from "../notes.js";
 
 export interface ProblemNoteEval {
   note: string;
@@ -62,6 +63,11 @@ export async function evalProblemNote(note: Note, runner: Runner): Promise<Probl
   }
 }
 
+function arg(name: string): string | undefined {
+  const i = process.argv.indexOf(`--${name}`);
+  return i >= 0 ? process.argv[i + 1] : undefined;
+}
+
 async function main() {
   const c = checkClaude();
   if (!c.ok) {
@@ -72,8 +78,14 @@ async function main() {
     console.error(`\n✖ Claude Code isn't logged in. ${LOGIN_FIX}\n`);
     process.exit(2);
   }
-  const notes = pickEvalNotes(SAMPLE_DIR, 2);
-  console.log(`Writing, computing and double-checking problems for ${notes.length} sample lectures…\n`);
+  // --notes <folder> --ids <COURSE/file.md,...> runs on real lectures instead of the sample ones.
+  const ids = arg("ids")?.split(",").map((x) => x.trim()).filter(Boolean);
+  const notes = ids ? loadNotes("all", path.resolve(arg("notes") ?? "notes")).filter((n) => ids.includes(n.id)) : pickEvalNotes(SAMPLE_DIR, 2);
+  if (ids && notes.length !== ids.length) {
+    console.error(`Found ${notes.length} of ${ids.length} lectures. Check the ids (COURSE/file.md) and --notes folder.`);
+    process.exit(2);
+  }
+  console.log(`Writing, computing and double-checking problems for ${notes.length} ${ids ? "" : "sample "}lectures…\n`);
   const rows = await Promise.all(notes.map((n) => evalProblemNote(n, runClaude)));
   for (const r of rows) {
     const why = r.rejected.map((x) => x.reason).join(", ");

@@ -25,15 +25,17 @@ const CLASS_CONTEXT = /\b(?:the professor|your professor|the instructor|in class
 /**
  * The part of this text that points at something not shown, or undefined if it stands on its own.
  * `allowClassContext` lets an explanation say "your notes" (it is read after answering), but never a figure label.
+ * `shownLabels` are the labels of a graph the app draws next to the question: those may be named ("point E", "the
+ * graph"), since the student can see them. Sums of lettered areas never pass: the app's graphs have no shaded areas.
  */
-export function unseenReference(text: string, allowClassContext = false): string | undefined {
+export function unseenReference(text: string, allowClassContext = false, shownLabels: string[] = []): string | undefined {
   for (const m of text.matchAll(FIGURE_LABEL)) {
-    // only a capital letter counts as a label
-    if (m[1] === m[1].toUpperCase()) return m[0];
+    // only a capital letter counts as a label, and only one the student can't see
+    if (m[1] === m[1].toUpperCase() && !shownLabels.includes(m[1])) return m[0];
   }
   const sum = text.match(LETTER_SUM);
   if (sum) return sum[0];
-  for (const re of POINTER) {
+  for (const re of shownLabels.length ? [] : POINTER) {
     const m = text.match(re);
     if (m) return m[0];
   }

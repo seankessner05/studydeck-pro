@@ -4,6 +4,7 @@ import { $, S, api, btnGhost, btnPrimary, esc, fmtNum, mmss, panelCls, plural, s
 import { subSwitch } from "./quiz.js";
 import { refreshAi } from "./panels.js";
 import { loadExamHome, renderExam } from "./exams.js";
+import { figureSvg } from "./graph.js";
 
 export const RX = { mode: null, blueprints: {}, past: [], job: null, sitting: null, answers: {}, error: "", timer: null, grading: false };
 
@@ -135,6 +136,7 @@ function partInput(p) {
   const group = (kind, name, options, labels, picked) => `<div role="radiogroup" aria-label="${esc(name)}" class="flex flex-wrap gap-1.5">${options.map((o) => `<button type="button" role="radio" aria-checked="${picked === o}" data-rx-graph="${esc(p.id)}|${kind}|${esc(name)}|${o}" class="min-h-10 rounded-xl px-3 text-xs font-extrabold transition ${picked === o ? "bg-brand-500 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-ink-700 dark:text-slate-200 dark:hover:bg-ink-600"}">${labels[o] || o}</button>`).join("")}</div>`;
   return `<div class="mt-3 space-y-3 rounded-2xl bg-slate-50 p-3 dark:bg-ink-700/50">
       <div class="text-[11px] font-extrabold uppercase tracking-wider text-slate-400">On the ${esc(p.graph)} graph</div>
+      ${figureSvg(p.figure, "Where things start. Say what moves.")}
       ${p.curves.map((c) => `<div class="flex flex-wrap items-center gap-2"><span class="w-28 shrink-0 text-sm font-bold">${esc(c.name)} curve</span>${group("curves", c.name, c.choices, SHIFT_LABEL, g.curves?.[c.name])}</div>`).join("")}
       ${p.effects.map((e) => `<div class="flex flex-wrap items-center gap-2"><span class="w-28 shrink-0 text-sm font-bold">${esc(e.name)}</span>${group("effects", e.name, ["up", "down", "same"], EFFECT_LABEL, g.effects?.[e.name])}</div>`).join("")}
       <p class="text-[11px] font-medium text-slate-400">On paper you'd draw and label this graph. Here you say what moves; each choice is graded.</p>
@@ -221,10 +223,14 @@ function partResultHtml(p, res) {
   }
   if (p.kind === "graph") {
     const got = res.submitted || { curves: {}, effects: {} };
-    const row = (name, mine, key, labels) => `<li class="flex flex-wrap gap-x-2"><span class="font-bold">${esc(name)}:</span><span class="${mine === key ? "text-emerald-600 dark:text-emerald-300" : "text-red-600 dark:text-red-400"}">you said ${esc(labels[mine] || "nothing")}</span>${mine === key ? "" : `<span>· correct: <b>${esc(labels[key])}</b></span>`}</li>`;
+    const row = (name, mine, key, labels, also = []) => {
+      const ok = mine === key || also.includes(mine);
+      return `<li class="flex flex-wrap gap-x-2"><span class="font-bold">${esc(name)}:</span><span class="${ok ? "text-emerald-600 dark:text-emerald-300" : "text-red-600 dark:text-red-400"}">you said ${esc(labels[mine] || "nothing")}</span>${ok ? "" : `<span>· correct: <b>${esc([key, ...also].map((k) => labels[k]).join(" or "))}</b></span>`}</li>`;
+    };
     return `<div class="mt-2 space-y-2 text-sm"><div>${pts}</div>
-        <ul class="space-y-1 rounded-xl bg-slate-50 px-3 py-2 text-xs dark:bg-ink-700/50">${p.curves.map((c) => row(`${c.name} curve`, got.curves?.[c.name], c.key, SHIFT_LABEL)).join("")}${p.effects.map((e) => row(e.name, got.effects?.[e.name], e.key, EFFECT_LABEL)).join("")}</ul>
+        <ul class="space-y-1 rounded-xl bg-slate-50 px-3 py-2 text-xs dark:bg-ink-700/50">${p.curves.map((c) => row(`${c.name} curve`, got.curves?.[c.name], c.key, SHIFT_LABEL, c.also)).join("")}${p.effects.map((e) => row(e.name, got.effects?.[e.name], e.key, EFFECT_LABEL)).join("")}</ul>
         ${p.why ? `<p class="text-xs text-slate-600 dark:text-slate-300"><b>Why:</b> ${esc(p.why)}</p>` : ""}
+        ${figureSvg(p.answerFigure, p.checked?.length ? `The answer, drawn from the curves' equations (moved curves dashed). Checked by the app: ${p.checked.join(", ")}.` : "The answer, drawn from the curves' equations (moved curves dashed).")}
       </div>`;
   }
   return `<div class="mt-2 space-y-2 text-sm">

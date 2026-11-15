@@ -3,6 +3,7 @@ import { $, Q, S, api, courseName, esc, palette, plural, state } from "./core.js
 import { refreshState } from "./shell.js";
 import { loadStudyToday, renderStudy, statTile } from "./cards.js";
 import { genPanelHtml } from "./generate.js";
+import { figureSvg } from "./graph.js";
 import { refreshAi } from "./panels.js";
 
 // ---- quizzes ----
@@ -124,7 +125,7 @@ export function renderQuizPlay() {
       <span class="text-xs font-extrabold tabular-nums text-slate-400">${Q.idx + 1} / ${total}</span></div>
     <div class="rounded-3xl bg-white p-6 shadow-pop ring-1 ring-slate-200/70 md:p-8 dark:bg-ink-800 dark:ring-ink-600">
       <div class="mb-3 flex flex-wrap items-center gap-2 text-[11px] font-extrabold uppercase tracking-wider text-slate-400"><span class="rounded-full px-2 py-0.5 ${palette(q.course).tile} ${palette(q.course).text}">${esc(q.course)}</span>${KIND_LABEL[q.kind]}${q.again ? '<span class="rounded-full bg-sun/30 px-2 py-0.5 text-amber-800 dark:text-sun">Second try</span>' : ""}</div>
-      <div class="text-xl leading-snug font-extrabold md:text-2xl">${esc(q.stem)}</div>
+      <div class="text-xl leading-snug font-extrabold md:text-2xl">${esc(q.stem)}</div>${figureSvg(q.figure)}
     </div>
     <div class="${isTf ? "grid grid-cols-2" : "flex flex-col"} gap-2.5">${optHtml}</div>
     ${feedback}

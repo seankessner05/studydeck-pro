@@ -312,4 +312,12 @@ export const MIGRATIONS: Migration[] = [
       ALTER TABLE cards ADD COLUMN flagged_at INTEGER;
     `,
   },
+  {
+    version: 11,
+    name: "study: graphs on quiz questions and practice problems",
+    sql: `
+      ALTER TABLE questions ADD COLUMN graph TEXT;   -- a checked graph spec (src/study/graphs.ts), drawn by the app
+      ALTER TABLE problems ADD COLUMN graph TEXT;
+    `,
+  },
 ];

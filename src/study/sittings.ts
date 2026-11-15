@@ -4,6 +4,8 @@ import { tx } from "./db.js";
 import { numbersClose, parseNumber, type Step } from "./problemgen.js";
 import { QuizError } from "./questions.js";
 import type { QKind } from "./quizgen.js";
+import { figureOf } from "./figure.js";
+import type { Figure } from "./graphs.js";
 import type { GradeInput, RubricPoint, WrittenGrade, WrittenQuestion } from "./written.js";
 
 export type Preset = "quick" | "standard" | "full";
@@ -17,20 +19,20 @@ const PROBLEM_MINUTES = 6;
 const WRITTEN_MINUTES = 8;
 const PROBLEM_POINTS = 3;
 
-interface McqItem { id: string; type: "mcq"; refId: string; kind: QKind; stem: string; options: string[]; answer: number[]; explanation: string; quote: string | null; noteId: string | null; section: string | null; points: number }
-interface ProblemItem { id: string; type: "problem"; refId: string; stem: string; unit: string; answer: number; steps: Step[]; quote: string | null; noteId: string | null; section: string | null; points: number }
+interface McqItem { id: string; type: "mcq"; refId: string; kind: QKind; stem: string; options: string[]; answer: number[]; explanation: string; quote: string | null; noteId: string | null; section: string | null; points: number; graph?: string | null }
+interface ProblemItem { id: string; type: "problem"; refId: string; stem: string; unit: string; answer: number; steps: Step[]; quote: string | null; noteId: string | null; section: string | null; points: number; graph?: string | null }
 interface WrittenItem { id: string; type: "written"; prompt: string; rubric: RubricPoint[]; noteId: string | null; section: string | null; points: number }
 export type Item = McqItem | ProblemItem | WrittenItem;
 
 /** What the exam page gets: the questions only. Keys, steps, rubrics and explanations stay on the server until you submit. */
 export type PublicItem =
-  | { id: string; type: "mcq"; kind: QKind; stem: string; options: string[]; points: number; noteId: string | null; section: string | null }
-  | { id: string; type: "problem"; stem: string; unit: string; points: number; noteId: string | null; section: string | null }
+  | { id: string; type: "mcq"; kind: QKind; stem: string; options: string[]; points: number; noteId: string | null; section: string | null; figure: Figure | null }
+  | { id: string; type: "problem"; stem: string; unit: string; points: number; noteId: string | null; section: string | null; figure: Figure | null }
   | { id: string; type: "written"; prompt: string; points: number; noteId: string | null; section: string | null };
 
 export function toPublicItem(it: Item): PublicItem {
-  if (it.type === "mcq") return { id: it.id, type: "mcq", kind: it.kind, stem: it.stem, options: it.options, points: it.points, noteId: it.noteId, section: it.section };
-  if (it.type === "problem") return { id: it.id, type: "problem", stem: it.stem, unit: it.unit, points: it.points, noteId: it.noteId, section: it.section };
+  if (it.type === "mcq") return { id: it.id, type: "mcq", kind: it.kind, stem: it.stem, options: it.options, points: it.points, noteId: it.noteId, section: it.section, figure: figureOf(it.graph) };
+  if (it.type === "problem") return { id: it.id, type: "problem", stem: it.stem, unit: it.unit, points: it.points, noteId: it.noteId, section: it.section, figure: figureOf(it.graph) };
   return { id: it.id, type: "written", prompt: it.prompt, points: it.points, noteId: it.noteId, section: it.section };
 }
 
@@ -116,8 +118,8 @@ export function createSitting(db: Db, o: NewSitting, now = new Date(), rand: () 
   const written = o.written.slice(0, want.written);
 
   const items: Item[] = [
-    ...mcq.map((r): McqItem => ({ id: randomUUID(), type: "mcq", refId: r.id, kind: r.kind, stem: r.stem, options: JSON.parse(r.options), answer: JSON.parse(r.answer), explanation: r.explanation, quote: r.quote, noteId: r.note_id, section: r.section, points: 1 })),
-    ...problems.map((r): ProblemItem => ({ id: randomUUID(), type: "problem", refId: r.id, stem: r.stem, unit: r.unit, answer: r.answer, steps: JSON.parse(r.steps), quote: r.quote, noteId: r.note_id, section: r.section, points: PROBLEM_POINTS })),
+    ...mcq.map((r): McqItem => ({ id: randomUUID(), type: "mcq", refId: r.id, kind: r.kind, stem: r.stem, options: JSON.parse(r.options), answer: JSON.parse(r.answer), explanation: r.explanation, quote: r.quote, noteId: r.note_id, section: r.section, points: 1, graph: r.graph ?? null })),
+    ...problems.map((r): ProblemItem => ({ id: randomUUID(), type: "problem", refId: r.id, stem: r.stem, unit: r.unit, answer: r.answer, steps: JSON.parse(r.steps), quote: r.quote, noteId: r.note_id, section: r.section, points: PROBLEM_POINTS, graph: r.graph ?? null })),
     ...written.map((w): WrittenItem => ({ id: randomUUID(), type: "written", prompt: w.prompt, rubric: w.rubric, noteId: w.noteId, section: w.section, points: w.rubric.length })),
   ];
   if (!items.length) throw new QuizError("There are no quiz questions or practice problems for these lectures yet. Make some first, then take the exam.");

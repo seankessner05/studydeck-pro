@@ -3,6 +3,7 @@ import { refreshState, setView } from "./shell.js";
 import { loadStudyToday, renderStudy, statTile } from "./cards.js";
 import { genPanelHtml, resumeGeneration } from "./generate.js";
 import { subSwitch } from "./quiz.js";
+import { figureSvg } from "./graph.js";
 import { goSub, renderStudyMore } from "./studyhub.js";
 
 // =============================================================== practice problems
@@ -86,7 +87,7 @@ export function renderProblemPlay() {
       <span class="text-xs font-extrabold tabular-nums text-slate-400">${PRB.idx + 1} / ${total}</span></div>
     <div class="${panelCls} !p-6 md:!p-8 !shadow-pop">
       <div class="mb-3 flex flex-wrap items-center gap-2 text-[11px] font-extrabold uppercase tracking-wider text-slate-400"><span class="rounded-full px-2 py-0.5 ${palette(p.course).tile} ${palette(p.course).text}">${esc(p.course)}</span>${DIFF[p.difficulty]}${p.again ? '<span class="rounded-full bg-sun/30 px-2 py-0.5 text-amber-800 dark:text-sun">Second try</span>' : ""}</div>
-      <div class="text-lg leading-relaxed font-bold md:text-xl">${esc(p.stem)}</div></div>
+      <div class="text-lg leading-relaxed font-bold md:text-xl">${esc(p.stem)}</div>${figureSvg(p.figure)}</div>
     ${!r ? `<div class="space-y-3">
       ${PRB.hintShown ? `<div class="rounded-2xl bg-brand-50 px-4 py-3 text-sm dark:bg-brand-500/10"><div class="text-[10px] font-extrabold uppercase tracking-wider text-brand-600 dark:text-brand-300">Hint · your first step</div><b>${esc(p.hint.label)}.</b> ${esc(p.hint.explain)}</div>`
         : `<button id="hintBtn" class="${btnGhost}">💡 Show a hint <span class="text-xs font-semibold text-slate-400">(counts as help)</span></button>`}

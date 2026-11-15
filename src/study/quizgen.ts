@@ -6,6 +6,7 @@ import { profileGuidance } from "../profiles.js";
 import { MATH_RULE, mathProblem, plainMath } from "./mathtext.js";
 import { CALL_TIMEOUT_MS, checkableNumbers, isCompoundQuestion, jaccard, parseJsonList, sectionFor, type Density } from "./cardgen.js";
 import { copiesNote, unseenReference } from "./standalone.js";
+import { GRAPH_SPEC_RULE, GraphError, buildFigure, graphLabels, parseGraph, shownNumbers, type GraphSpec } from "./graphs.js";
 
 export type QKind = "single" | "multi" | "tf";
 
@@ -30,6 +31,8 @@ export interface GeneratedQuestion {
   explanation: string;
   quote: string;
   section: string;
+  /** A graph shown with the question: checked and drawn by the app. */
+  graph?: GraphSpec;
 }
 
 export type QRejectReason =
@@ -48,6 +51,8 @@ export type QRejectReason =
   | "too_many_tf"
   | "length_giveaway"
   | "bad_math"
+  | "bad_graph"
+  | "too_many_graphs"
   | "key_disagrees"
   | "ambiguous"
   | "not_checked";
@@ -68,6 +73,8 @@ export const Q_REJECT_LABEL: Record<QRejectReason, string> = {
   too_many_tf: "too many true/false questions for one lecture",
   length_giveaway: "the right option is much longer than the others, which gives it away",
   bad_math: "a formula is broken and can't be shown properly",
+  bad_graph: "its graph can't be drawn honestly (a curve off the axes, or a point that isn't where its curves cross)",
+  too_many_graphs: "too many graph questions for one lecture",
   key_disagrees: "a second solve, without your notes, picked a different answer than the key",
   ambiguous: "a second solve, without your notes, couldn't answer it from the question alone",
   not_checked: "the second solve didn't answer it",
@@ -117,6 +124,8 @@ export function buildQuestionPrompts(note: Note, opts: QuizPromptOptions): { sys
     "10. Skip administrative content: logistics, homework or exam dates, attendance, office hours, grades, announcements.",
     "11. The idea and the correct answer must agree with the note: if the note's professor uses a particular convention or result, follow it. Numbers in the correct option and the explanation must come from the note or from your own stem.",
     `12. ${MATH_RULE}`,
+    '13. GRAPHS: where SEEING a graph is the point (which curve shifts, where the new equilibrium is, reading a value off it), you may attach "graph" to a question. The app draws it from your equations, so it is exact. Refer to it as "the graph" and use its curve and point labels exactly ("curve AD", "point E1"). The graph shows the situation AFTER or BEFORE a change, or both (a moved curve gets its own label, e.g. AD2, with "dashed": true). Never ask about areas. Any number in the right answer or explanation must be written in the stem or marked on the graph ("values": true). When the note teaches a graph (supply and demand, AD-AS, IS-LM, the money market, the Keynesian cross, the Solow diagram...), write at least one question that comes with that graph; at most a third of the questions get one.',
+    `   ${GRAPH_SPEC_RULE}`,
     style ? `\nCOURSE STYLE\n${style}` : "",
     "",
     'OUTPUT: ONLY a JSON array, no prose and no code fences. Examples of the three shapes: [{"kind":"single","stem":"...","options":["...","...","...","..."],"answer":["B"],"explanation":"...","quote":"...","section":"..."},{"kind":"multi","stem":"Select all that apply: ...","options":["...","...","...","...","..."],"answer":["A","D"],"explanation":"...","quote":"...","section":"..."},{"kind":"tf","stem":"...","answer":true,"explanation":"...","quote":"...","section":"..."}]',
@@ -223,6 +232,8 @@ export function validateQuestions(
   // A quarter of what this lecture is likely to yield (not of the most we would ever keep), rounded down, but never zero.
   const tfCap = Math.max(1, Math.floor(TF_SHARE * Math.min(max, raw.length)));
   let tfCount = 0;
+  const graphCap = Math.max(1, Math.ceil(Math.min(max, raw.length) / 3));
+  let graphCount = 0;
 
   for (const item of raw) {
     const c = (item && typeof item === "object" ? item : {}) as Record<string, unknown>;
@@ -239,7 +250,18 @@ export function validateQuestions(
     if (badMath) { reject("bad_math", badMath); continue; }
     if (/\b(according to|as (stated|mentioned|said) in|in) (the|these|my) (notes?|lecture|transcript|slides?)\b/i.test(stem)) { reject("refers_to_notes"); continue; }
     if (kind !== "tf" && isCompoundQuestion(stem)) { reject("two_questions"); continue; }
-    const unseen = unseenReference(stem) ?? (Array.isArray(c.options) ? (c.options as unknown[]).map((o) => (typeof o === "string" ? unseenReference(o) : undefined)).find(Boolean) : undefined) ?? unseenReference(explanation, true);
+    // A graph the app will draw next to the question: checked first, since its labels may be named in the text.
+    let graph: GraphSpec | undefined;
+    if (c.graph !== undefined && c.graph !== null) {
+      try {
+        graph = parseGraph(c.graph);
+      } catch (e) {
+        reject("bad_graph", e instanceof GraphError ? e.message : "unusable");
+        continue;
+      }
+    }
+    const shown = graph ? graphLabels(graph) : [];
+    const unseen = unseenReference(stem, false, shown) ?? (Array.isArray(c.options) ? (c.options as unknown[]).map((o) => (typeof o === "string" ? unseenReference(o, false, shown) : undefined)).find(Boolean) : undefined) ?? unseenReference(explanation, true, shown);
     if (unseen) { reject("not_self_contained", unseen); continue; }
     if (kind === "tf" && stem.includes("?")) { reject("malformed", "a true/false stem must be a statement"); continue; }
 
@@ -270,7 +292,7 @@ export function validateQuestions(
 
     // A new situation may bring its own numbers in the stem. The right option(s) and the explanation may only use numbers
     // from the note or the stem, so a computed answer can't slip in unchecked (computed answers belong to practice problems).
-    const allowed = new Set([...noteNumbers, ...checkableNumbers(plainMath(stem))]);
+    const allowed = new Set([...noteNumbers, ...checkableNumbers(plainMath(stem)), ...(graph ? checkableNumbers(shownNumbers(graph).join(" ")) : [])]);
     const checked = [explanation, ...answer.map((i) => (kind === "tf" ? "" : options[i]))];
     const stray = checkableNumbers(plainMath(checked.join(" "))).filter((n) => !allowed.has(n));
     if (stray.length) { reject("number_not_in_note", stray.join(", ")); continue; }
@@ -280,10 +302,12 @@ export function validateQuestions(
 
     if (seen.some((s) => normalize(s) === normalize(stem) || jaccard(s, stem) >= 0.8)) { reject("duplicate"); continue; }
     if (kind === "tf" && tfCount >= tfCap) { reject("too_many_tf"); continue; }
+    if (graph && graphCount >= graphCap) { reject("too_many_graphs"); continue; }
     if (accepted.length >= max) break;
 
     seen.push(stem);
     if (kind === "tf") tfCount++;
+    if (graph) graphCount++;
     // Shuffle single/multi options and move the answer key with them.
     let finalOptions = options;
     let finalAnswer = answer;
@@ -295,7 +319,7 @@ export function validateQuestions(
       finalExplanation = reletterExplanation(explanation, options.map((_, i) => order.indexOf(i)));
     }
     const claimed = typeof c.section === "string" ? c.section.trim() : "";
-    accepted.push({ kind, stem, options: finalOptions, answer: finalAnswer, explanation: finalExplanation, quote, section: sectionFor(note.body, quote) ?? (claimed || note.title) });
+    accepted.push({ kind, stem, options: finalOptions, answer: finalAnswer, explanation: finalExplanation, quote, section: sectionFor(note.body, quote) ?? (claimed || note.title), ...(graph ? { graph } : {}) });
   }
   return { accepted, rejected };
 }
@@ -312,13 +336,16 @@ export function buildSolverPrompts(note: Note, questions: GeneratedQuestion[], c
     `You are a strong student in a college ${courseName} course, taking an exam. You have no notes. You have not seen any answer key.`,
     "Answer every question from the question itself and what a student who understands the course material knows.",
     "For a question with options, give the letter(s) of the correct option(s) (A is the first option). For a \"select all that apply\" question, give every correct letter. For a true/false statement, give true or false.",
-    'Set "ambiguous" to true if the question can\'t be answered from what it says (it refers to a graph, labels, a table or a lecture you can\'t see, or leaves out information you need), if two answers could both be defended, or if no option is correct.',
+    "A question may come with a graph, described in [brackets] exactly as the student sees it.",
+    'Set "ambiguous" to true if the question can\'t be answered from what it says (it refers to a graph that isn\'t described, labels, a table or a lecture you can\'t see, or leaves out information you need), if two answers could both be defended, or if no option is correct.',
     'OUTPUT: ONLY a JSON array, one entry per question: [{"n":1,"answer":["B"],"ambiguous":false},{"n":2,"answer":true,"ambiguous":false}]',
   ].join("\n");
   const rendered = questions.map((q, i) => {
-    if (q.kind === "tf") return `Q${i + 1} (true or false): ${q.stem}`;
+    // The solver reads the graph the way the student sees it: in words, with only the values marked on it.
+    const seen = q.graph ? `\n[${buildFigure(q.graph).description}]` : "";
+    if (q.kind === "tf") return `Q${i + 1} (true or false): ${q.stem}${seen}`;
     const head = q.kind === "multi" ? "select ALL that apply" : "choose ONE";
-    return `Q${i + 1} (${head}): ${q.stem}\n${q.options.map((o, k) => `${LETTERS[k]}. ${o}`).join("\n")}`;
+    return `Q${i + 1} (${head}): ${q.stem}${seen}\n${q.options.map((o, k) => `${LETTERS[k]}. ${o}`).join("\n")}`;
   });
   return { system, prompt: `Course: ${courseName}. Topic of these questions: ${note.title}.\n\n${rendered.join("\n\n")}\n\nAnswer all ${questions.length} questions now.` };
 }
