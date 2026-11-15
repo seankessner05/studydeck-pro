@@ -11,6 +11,7 @@ import { init as quiz } from "./quiz.js";
 import { init as cardtools } from "./cardtools.js";
 import { init as today } from "./today.js";
 import { init as inbox } from "./inbox.js";
+import { init as math } from "./math.js";
 import "./core.js";
 import "./chat.js";
 import "./shell.js";
@@ -26,4 +27,4 @@ import "./exams.js";
 import "./progress.js";
 import "./match.js";
 
-for (const start of [events, studyhub, studyevents, dialog, trash, restore, realexam, quiz, cardtools, today, inbox]) start();
+for (const start of [events, studyhub, studyevents, dialog, trash, restore, realexam, quiz, cardtools, today, inbox, math]) start();

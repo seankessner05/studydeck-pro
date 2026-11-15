@@ -46,6 +46,17 @@ function raw(method: string, url: string, headers: Record<string, string> = {}, 
 }
 const backups = () => (fs.existsSync(path.join(dataDir, "backups")) ? fs.readdirSync(path.join(dataDir, "backups")).length : 0);
 
+describe("math typesetting files", () => {
+  it("serves KaTeX from the app's own copy, never a directory listing or a file outside it", async () => {
+    const js = await raw("GET", "/vendor/katex/contrib/auto-render.mjs");
+    expect(js.status).toBe(200);
+    expect(js.headers["content-type"]).toMatch(/javascript/);
+    expect((await raw("GET", "/vendor/katex/katex.min.css")).status).toBe(200);
+    expect((await raw("GET", "/vendor/katex/")).status).toBe(404);
+    expect((await raw("GET", "/vendor/katex/..%2Fpackage.json")).status).not.toBe(200);
+  });
+});
+
 describe("host and origin parsing", () => {
   it("reads host[:port] and rejects anything else", () => {
     expect(parseHost("localhost:3000")).toEqual({ name: "localhost", port: 3000 });

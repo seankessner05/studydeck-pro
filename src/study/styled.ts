@@ -6,6 +6,7 @@ import { normalize } from "../citations.js";
 import type { Db } from "../library/db.js";
 import type { Note } from "../notes.js";
 import { parseJsonList } from "./cardgen.js";
+import { MATH_RULE, mathProblem, plainMath } from "./mathtext.js";
 import { compute, numberInText, numbersClose, parseNumber, type Step } from "./problemgen.js";
 import { sharedRun, unseenReference, withoutInstructions } from "./standalone.js";
 import type { GradeInput, WrittenGrade } from "./written.js";
@@ -135,6 +136,7 @@ export function buildExamPrompts(b: Blueprint, notes: Note[], only?: { section: 
     "CONTENT",
     "- Cover the topics this exam is most likely to test: weight toward what the lectures spend the most time on and what the professor says is on the exam (look for exam-prep and review lectures). Each question uses a different main topic.",
     "- Every question is new: new economies, new numbers, new real-world hooks. Follow the professor's conventions and notation from the notes.",
+    `- ${MATH_RULE} expr stays plain arithmetic.`,
     "- Fully self-contained: give every number and equation the student needs in the question. NEVER refer to a graph, figure, table, lettered area or point the student can't see, to the lecture, the notes, class, a problem set or the past exam. If a graph is involved, the student is asked to describe it.",
     "",
     "PARTS (each part is exactly ONE of these kinds; when the blueprint says \"number + written\", split it into two parts with the same letter, e.g. b) and b) explain)",
@@ -186,7 +188,7 @@ export function buildExamSolverPrompts(courseName: string, questions: ExamQuesti
 
 // ---------- checking what Claude wrote ----------
 
-export type ExamRejectReason = "malformed" | "points" | "not_self_contained" | "copies_past_exam" | "bad_program" | "given_not_in_text" | "bad_rubric" | "quote_not_found" | "bad_graph" | "solve_disagrees" | "unanswerable" | "not_checked";
+export type ExamRejectReason = "malformed" | "points" | "not_self_contained" | "copies_past_exam" | "bad_program" | "given_not_in_text" | "bad_rubric" | "quote_not_found" | "bad_graph" | "bad_math" | "solve_disagrees" | "unanswerable" | "not_checked";
 
 export const EXAM_REJECT_LABEL: Record<ExamRejectReason, string> = {
   malformed: "malformed",
@@ -198,6 +200,7 @@ export const EXAM_REJECT_LABEL: Record<ExamRejectReason, string> = {
   bad_rubric: "a written part's rubric is unusable",
   quote_not_found: "a rubric point's quote isn't in the notes",
   bad_graph: "a graph part's answer is unusable",
+  bad_math: "a formula is broken and can't be shown properly",
   solve_disagrees: "a second solve, without notes, got a different answer",
   unanswerable: "a second solve, without notes, couldn't answer it from the exam",
   not_checked: "the second solve didn't answer every part",
@@ -227,7 +230,7 @@ function pastExamNumbers(examples: string): Set<number> {
 /** A given is written in the text as a number, a percent, a fraction ("k^(1/2)") or, for 0.5, a square root. */
 export function givenInText(value: number, text: string): boolean {
   if (numberInText(value, text)) return true;
-  for (const m of text.matchAll(/(\d+)\s*\/\s*(\d+)/g)) if (Number(m[2]) !== 0 && Math.abs(Number(m[1]) / Number(m[2]) - Math.abs(value)) < 1e-9) return true;
+  for (const m of text.matchAll(/\(?(\d+)\)?\s*\/\s*\(?(\d+)\)?/g)) if (Number(m[2]) !== 0 && Math.abs(Number(m[1]) / Number(m[2]) - Math.abs(value)) < 1e-9) return true;
   return Math.abs(value) === 0.5 && /√|sqrt|square root/i.test(text);
 }
 
@@ -333,13 +336,17 @@ export function validateExamQuestion(raw: unknown, b: Blueprint, notes: Note[]):
     }
   }
 
+  const badMath = [allText, ...parts.map((p) => (p.kind === "written" ? p.model : p.kind === "graph" ? p.why : p.steps.map((st) => st.explain).join(" ")))].map(mathProblem).find(Boolean);
+  if (badMath) return reject("bad_math", badMath);
+  // The word and number checks read formulas as plain text: "\\(\\frac{1}{2}\\)" is "(1)/(2)".
+  allText = plainMath(allText);
   if (Math.abs(parts.reduce((n, p) => n + p.points, 0) - slot.points) > 1e-9) return reject("points", `${parts.reduce((n, p) => n + p.points, 0)} of ${slot.points}`);
   const unseen = unseenReference(allText);
   if (unseen) return reject("not_self_contained", unseen);
   // The scenario must be new; the professor's way of asking ("Does this fit your answer to part (a)?", "Stage 1, 2 and 3",
   // "describe it in words for partial credit") is his format and may be reused. Only a near-wholesale copy of a whole
   // question is rejected outside the setup.
-  const scenario = sharedRun(withoutInstructions(setup), withoutInstructions(b.examples));
+  const scenario = sharedRun(withoutInstructions(plainMath(setup)), withoutInstructions(b.examples));
   if (scenario.length > 9) return reject("copies_past_exam", `“${scenario.words}”`);
   const whole = sharedRun(allText, b.examples);
   if (whole.length > 25) return reject("copies_past_exam", `“${whole.words.split(" ").slice(0, 12).join(" ")}…”`);

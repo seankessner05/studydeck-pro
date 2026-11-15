@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>StudyDeck</title>
   <link rel="icon" href="/logo.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="/vendor/katex/katex.min.css" />
   <link rel="stylesheet" href="/app.css" />
   <!-- Kept as a file (not inline) so the content policy can forbid inline scripts. It runs before first paint. -->
   <script src="/theme.js"></script>
@@ -133,7 +134,7 @@
         </div>
         <button id="closeSource" class="rounded-lg px-2 text-2xl leading-none text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-ink-700" aria-label="Close source">×</button>
       </div>
-      <div id="sourceBody" class="md min-h-0 flex-1 overflow-y-auto px-5 py-4 text-sm"></div>
+      <div id="sourceBody" class="no-math md min-h-0 flex-1 overflow-y-auto px-5 py-4 text-sm"></div>
     </aside>
   </div>
 
@@ -190,7 +191,7 @@
   </div>
 
   <!-- Citation hover preview -->
-  <div id="preview" class="pointer-events-none fixed z-50 hidden max-w-sm rounded-2xl bg-ink-900 px-4 py-3 text-xs leading-relaxed text-slate-100 shadow-pop dark:bg-white dark:text-ink-900"></div>
+  <div id="preview" class="no-math pointer-events-none fixed z-50 hidden max-w-sm rounded-2xl bg-ink-900 px-4 py-3 text-xs leading-relaxed text-slate-100 shadow-pop dark:bg-white dark:text-ink-900"></div>
 
   <!-- The app's screens, as JavaScript modules (public/js). main.js loads them and starts each in order. -->
   <script type="module" src="/js/main.js"></script>

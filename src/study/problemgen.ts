@@ -4,6 +4,7 @@ import type { Course } from "../courses.js";
 import { normalize } from "../citations.js";
 import type { Note } from "../notes.js";
 import { profileGuidance } from "../profiles.js";
+import { MATH_RULE, mathProblem, plainMath } from "./mathtext.js";
 import { CALL_TIMEOUT_MS, jaccard, parseJsonList, sectionFor, type Density } from "./cardgen.js";
 
 /** Problems to ask Claude for, per lecture. */
@@ -56,6 +57,7 @@ export type PRejectReason =
   | "quote_not_found"
   | "copied_from_note"
   | "duplicate"
+  | "bad_math"
   | "solve_disagrees"
   | "ambiguous"
   | "not_checked";
@@ -74,6 +76,7 @@ export const P_REJECT_LABEL: Record<PRejectReason, string> = {
   quote_not_found: "receipt quote isn't in the note",
   copied_from_note: "reuses the numbers of an example in the note",
   duplicate: "duplicate of an existing problem",
+  bad_math: "a formula is broken and can't be shown properly",
   solve_disagrees: "a blind second solve got a different answer than the computed one",
   ambiguous: "the second solve found the problem ambiguous",
   not_checked: "the second solve didn't answer it",
@@ -156,6 +159,7 @@ export function buildProblemPrompts(note: Note, opts: ProblemPromptOptions): { s
     "8. quote: 4 to 25 consecutive words copied EXACTLY from the note that state the formula or relationship the problem uses. Verbatim, character for character, including symbols. No paraphrasing and no ellipses.",
     "9. section: the heading the quote sits under, copied exactly from the note. If none, use the note's title.",
     "10. Mix difficulty: some problems of 1 or 2 steps, some of 3 or 4, some of 5 or 6. Each problem has exactly one correct numeric answer. No outside facts.",
+    `11. ${MATH_RULE} This is for the stem and explain only: expr stays plain arithmetic, and every given number is still written as a plain number in the stem.`,
     style ? `\nCOURSE STYLE\n${style}` : "",
     "",
     'OUTPUT: ONLY a JSON array, no prose and no code fences: [{"stem":"...","givens":[{"name":"...","value":0,"label":"..."}],"steps":[{"name":"...","label":"...","expr":"...","explain":"..."}],"unit":"...","quote":"...","section":"..."}]',
@@ -224,6 +228,8 @@ export function validateProblems(raw: unknown[], note: Note, existingStems: stri
     if (/\b(according to|as (stated|mentioned|said) in|in) (the|these|my) (notes?|lecture|transcript|slides?)\b/i.test(stem)) { reject("refers_to_notes"); continue; }
 
     if (asksTwoThings(stem)) { reject("two_questions"); continue; }
+    const badMath = mathProblem(stem) ?? (c.steps as unknown[]).map((st) => mathProblem(str((st as Record<string, unknown> | null)?.explain, 300))).find(Boolean);
+    if (badMath) { reject("bad_math", badMath); continue; }
 
     // givens
     const givens: Given[] = [];
@@ -236,7 +242,8 @@ export function validateProblems(raw: unknown[], note: Note, existingStems: stri
       givens.push({ name, value, label: str(r.label, 80) || name });
     }
     if (badGiven || !givens.length || givens.length > 8) { reject("bad_givens", badGiven || undefined); continue; }
-    const missing = givens.find((g) => !numberInText(g.value, stem));
+    const shownStem = plainMath(stem);
+    const missing = givens.find((g) => !numberInText(g.value, shownStem));
     if (missing) { reject("given_not_in_stem", `${missing.name} = ${missing.value}`); continue; }
 
     // steps, computed by the app

@@ -3,6 +3,7 @@ import type { Runner } from "../claude.js";
 import type { Course } from "../courses.js";
 import { normalize } from "../citations.js";
 import { unseenReference } from "./standalone.js";
+import { MATH_RULE, mathProblem, plainMath, repairLatexEscapes } from "./mathtext.js";
 import type { Note } from "../notes.js";
 import { profileGuidance } from "../profiles.js";
 
@@ -51,6 +52,7 @@ export type RejectReason =
   | "bad_cloze"
   | "too_many_cloze"
   | "not_self_contained"
+  | "bad_math"
   | "duplicate";
 
 export const REJECT_LABEL: Record<RejectReason, string> = {
@@ -64,6 +66,7 @@ export const REJECT_LABEL: Record<RejectReason, string> = {
   bad_cloze: "the fill-in blank isn't 1 to 6 meaningful words copied from its sentence",
   too_many_cloze: "too many fill-in cards for one lecture",
   not_self_contained: "points at something the card doesn't show (a graph's lettered areas, “in class”)",
+  bad_math: "a formula is broken and can't be shown properly",
   duplicate: "duplicate of an existing card",
 };
 
@@ -103,6 +106,7 @@ export function buildCardPrompts(note: Note, opts: PromptOptions): { system: str
     "7. Do not invent anything. Every fact and every number on a card must come from the note. Do not add outside knowledge.",
     "8. No two cards may test the same thing.",
     '9. FILL-IN CARDS: for a formula, a condition or a key definition worth knowing word for word, you may instead write a fill-in card: {"kind":"cloze","quote":"<one sentence or formula copied EXACTLY from the note, 6 to 30 words>","blank":"<the 1 to 6 words to hide, copied exactly from that quote>","section":"..."}. Hide the part worth remembering (the formula\'s right-hand side, the defined term), never filler. At most a third of your cards may be fill-ins. Never use a sentence that only makes sense with a graph (lettered areas or points).',
+    `10. ${MATH_RULE} A formula from the note may be written in LaTeX on the front or back; fill-in cards stay exactly as the note has them.`,
     style ? `\nCOURSE STYLE\n${style}` : "",
     "",
     'OUTPUT: ONLY a JSON array, no prose and no code fences: [{"front":"...","back":"...","quote":"...","section":"..."},{"kind":"cloze","quote":"...","blank":"...","section":"..."}]',
@@ -125,7 +129,8 @@ export function parseJsonList(text: string, key: string, what: string): unknown[
   const cleaned = text.replace(/```(?:json)?/gi, "");
   const tryParse = (s: string): unknown => {
     try {
-      return JSON.parse(s);
+      // LaTeX backslashes ("\(", "\frac") are easy to write as broken or wrong JSON escapes; mend those first.
+      return JSON.parse(repairLatexEscapes(s));
     } catch {
       return undefined;
     }
@@ -257,9 +262,11 @@ export function validateCards(
     if (front.length > MAX_FRONT || back.length > MAX_BACK) { reject("too_long"); continue; }
     if (/\b(according to|as (stated|mentioned|said) in|in) (the|these|my) (notes?|lecture|transcript|slides?)\b/i.test(front)) { reject("refers_to_notes"); continue; }
     if (isCompoundQuestion(front)) { reject("two_questions"); continue; }
+    const badMath = mathProblem(front) ?? mathProblem(back);
+    if (badMath) { reject("bad_math", badMath); continue; }
     if (wordCount(quote) < 3) { reject("quote_too_short"); continue; }
     if (!noteNorm.includes(normalize(quote))) { reject("quote_not_found", quote.slice(0, 80)); continue; }
-    const stray = checkableNumbers(`${front} ${back}`).filter((n) => !noteNumbers.has(n));
+    const stray = checkableNumbers(plainMath(`${front} ${back}`)).filter((n) => !noteNumbers.has(n));
     if (stray.length) { reject("number_not_in_note", stray.join(", ")); continue; }
     if (seen.some((f) => normalize(f) === normalize(front) || jaccard(f, front) >= 0.8)) { reject("duplicate"); continue; }
     if (accepted.length >= max) break;

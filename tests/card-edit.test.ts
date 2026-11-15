@@ -80,3 +80,14 @@ describe("flagging a card", () => {
     expect(() => flagCard(db, "nope", "wrong")).toThrow(/not found/);
   });
 });
+
+describe("formulas on typed cards", () => {
+  it("saves good LaTeX and refuses a formula the page can't show, on create and on edit", async () => {
+    const db = studyDb(tmp());
+    const card = await addCard(db, { course: "ECON300", front: "Multiplier with \\(MPC = 0.8\\)?", back: "\\(\\frac{1}{1 - 0.8} = 5\\)" });
+    expect(card.back).toBe("\\(\\frac{1}{1 - 0.8} = 5\\)");
+    await expect(addCard(db, { course: "ECON300", front: "Broken \\(\\frac{1}{2\\)", back: "x" })).rejects.toThrow(/formula can't be shown/);
+    expect(() => editCard(db, card.id, { back: "\\(\\frac{1}{1 - 0.8} = 5" }, undefined)).toThrow(CardError);
+    expect(getCard(db, card.id)!.back).toBe("\\(\\frac{1}{1 - 0.8} = 5\\)");
+  });
+});

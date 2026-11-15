@@ -4,6 +4,13 @@ import { tx } from "./db.js";
 import { normalize } from "../citations.js";
 import { deserialize, newCard, preview, review, serialize, type Grade, type Preview } from "./fsrs.js";
 import type { GeneratedCard } from "./cardgen.js";
+import { mathProblem } from "./mathtext.js";
+
+/** A typed formula must be one the page can show; say which one is broken rather than saving red error text. */
+function checkMath(...texts: string[]): void {
+  const bad = texts.map(mathProblem).find(Boolean);
+  if (bad) throw new CardError(`A formula can't be shown (${bad}). Write math between \\( and \\), like \\(\\frac{1}{2}\\).`);
+}
 
 export const NEW_PER_DAY = 20;
 const MAX_FRONT = 600;
@@ -65,6 +72,7 @@ export async function addCard(db: Db, input: NewCardInput, now = new Date()): Pr
   if (!front || !back) throw new CardError("A card needs both a front and a back.");
   if (front.length > MAX_FRONT) throw new CardError(`The front is too long (max ${MAX_FRONT} characters).`);
   if (back.length > MAX_BACK) throw new CardError(`The back is too long (max ${MAX_BACK} characters).`);
+  checkMath(front, back);
   const card = await newCard(now);
   const id = randomUUID();
   db.prepare(
@@ -319,6 +327,7 @@ export function editCard(db: Db, id: string, edit: CardEdit, noteBody: string | 
   const quote = edit.quote === undefined ? row.quote : edit.quote === null ? null : String(edit.quote).trim() || null;
   if (!front || !back) throw new CardError("A card needs both a front and a back.");
   if (front.length > 500 || back.length > 2000) throw new CardError("That's too long for a flashcard. Split it into two cards.");
+  checkMath(front, back);
   if (quote && quote !== row.quote) {
     if (!noteBody) throw new CardError("The lecture this card came from isn't available, so a new quote can't be checked.");
     if (!normalize(noteBody).includes(normalize(quote))) throw new CardError("That quote isn't word for word in the lecture. Copy it exactly, or leave the old one.");

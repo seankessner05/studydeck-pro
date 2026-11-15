@@ -111,6 +111,8 @@ export function createApp(rawDeps: AppDeps) {
   // First in line: refuse anything that didn't come from this app's own pages (see src/security.ts).
   app.use(localGuard());
   app.use(express.json({ limit: "1mb" }));
+  // Math typesetting (KaTeX) is served from the app's own installed copy: no CDN, works offline.
+  app.use("/vendor/katex", express.static(path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "node_modules", "katex", "dist"), { index: false }));
   app.use(express.static(path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "public")));
 
   /** Demo mode pins the seed courses; otherwise the user's own registry applies. */

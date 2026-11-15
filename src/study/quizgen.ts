@@ -3,6 +3,7 @@ import type { Course } from "../courses.js";
 import { normalize } from "../citations.js";
 import type { Note } from "../notes.js";
 import { profileGuidance } from "../profiles.js";
+import { MATH_RULE, mathProblem, plainMath } from "./mathtext.js";
 import { CALL_TIMEOUT_MS, checkableNumbers, isCompoundQuestion, jaccard, parseJsonList, sectionFor, type Density } from "./cardgen.js";
 import { copiesNote, unseenReference } from "./standalone.js";
 
@@ -46,6 +47,7 @@ export type QRejectReason =
   | "duplicate"
   | "too_many_tf"
   | "length_giveaway"
+  | "bad_math"
   | "key_disagrees"
   | "ambiguous"
   | "not_checked";
@@ -65,6 +67,7 @@ export const Q_REJECT_LABEL: Record<QRejectReason, string> = {
   duplicate: "duplicate of an existing question",
   too_many_tf: "too many true/false questions for one lecture",
   length_giveaway: "the right option is much longer than the others, which gives it away",
+  bad_math: "a formula is broken and can't be shown properly",
   key_disagrees: "a second solve, without your notes, picked a different answer than the key",
   ambiguous: "a second solve, without your notes, couldn't answer it from the question alone",
   not_checked: "the second solve didn't answer it",
@@ -113,6 +116,7 @@ export function buildQuestionPrompts(note: Note, opts: QuizPromptOptions): { sys
     "9. section: the heading the quote sits under, copied exactly from the note (a line starting with #). If there is none, use the note's title.",
     "10. Skip administrative content: logistics, homework or exam dates, attendance, office hours, grades, announcements.",
     "11. The idea and the correct answer must agree with the note: if the note's professor uses a particular convention or result, follow it. Numbers in the correct option and the explanation must come from the note or from your own stem.",
+    `12. ${MATH_RULE}`,
     style ? `\nCOURSE STYLE\n${style}` : "",
     "",
     'OUTPUT: ONLY a JSON array, no prose and no code fences. Examples of the three shapes: [{"kind":"single","stem":"...","options":["...","...","...","..."],"answer":["B"],"explanation":"...","quote":"...","section":"..."},{"kind":"multi","stem":"Select all that apply: ...","options":["...","...","...","...","..."],"answer":["A","D"],"explanation":"...","quote":"...","section":"..."},{"kind":"tf","stem":"...","answer":true,"explanation":"...","quote":"...","section":"..."}]',
@@ -173,9 +177,11 @@ function shuffled<T>(items: T[], rand: () => number): T[] {
  * is only a few characters longer (short options like "5" and "2.5" differ in length without giving anything away).
  */
 function lengthRatio(options: string[], right: number): number {
-  const others = options.filter((_, i) => i !== right).map((o) => o.length);
+  // Measured as the student sees it: "\\(\\frac{1}{2}\\)" is short on screen however long its LaTeX is.
+  const shown = options.map((o) => plainMath(o).length);
+  const others = shown.filter((_, i) => i !== right);
   const mean = others.reduce((a, b) => a + b, 0) / others.length;
-  const len = options[right].length;
+  const len = shown[right];
   return len > Math.max(...others) && len - mean >= 12 && mean > 0 ? len / mean : 0;
 }
 /**
@@ -229,6 +235,8 @@ export function validateQuestions(
 
     if (!["single", "multi", "tf"].includes(kind) || !stem || !explanation || !quote) { reject("malformed"); continue; }
     if (stem.length > MAX_STEM || explanation.length > MAX_EXPLANATION) { reject("too_long"); continue; }
+    const badMath = [stem, explanation, ...(Array.isArray(c.options) ? c.options.filter((o): o is string => typeof o === "string") : [])].map(mathProblem).find(Boolean);
+    if (badMath) { reject("bad_math", badMath); continue; }
     if (/\b(according to|as (stated|mentioned|said) in|in) (the|these|my) (notes?|lecture|transcript|slides?)\b/i.test(stem)) { reject("refers_to_notes"); continue; }
     if (kind !== "tf" && isCompoundQuestion(stem)) { reject("two_questions"); continue; }
     const unseen = unseenReference(stem) ?? (Array.isArray(c.options) ? (c.options as unknown[]).map((o) => (typeof o === "string" ? unseenReference(o) : undefined)).find(Boolean) : undefined) ?? unseenReference(explanation, true);
@@ -262,12 +270,12 @@ export function validateQuestions(
 
     // A new situation may bring its own numbers in the stem. The right option(s) and the explanation may only use numbers
     // from the note or the stem, so a computed answer can't slip in unchecked (computed answers belong to practice problems).
-    const allowed = new Set([...noteNumbers, ...checkableNumbers(stem)]);
+    const allowed = new Set([...noteNumbers, ...checkableNumbers(plainMath(stem))]);
     const checked = [explanation, ...answer.map((i) => (kind === "tf" ? "" : options[i]))];
-    const stray = checkableNumbers(checked.join(" ")).filter((n) => !allowed.has(n));
+    const stray = checkableNumbers(plainMath(checked.join(" "))).filter((n) => !allowed.has(n));
     if (stray.length) { reject("number_not_in_note", stray.join(", ")); continue; }
 
-    const copied = copiesNote(stem, kind === "tf" ? "" : answer.map((i) => options[i]).join(" "), quote, note.body);
+    const copied = copiesNote(plainMath(stem), plainMath(kind === "tf" ? "" : answer.map((i) => options[i]).join(" ")), quote, note.body);
     if (copied) { reject("copies_note", copied); continue; }
 
     if (seen.some((s) => normalize(s) === normalize(stem) || jaccard(s, stem) >= 0.8)) { reject("duplicate"); continue; }

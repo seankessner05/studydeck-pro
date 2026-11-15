@@ -23,6 +23,7 @@ export function buildSystemPrompt(useGeneralKnowledge: boolean, courseGuidance =
     "   Never copy the notes' headings or retell whole sections. For \"what did we cover\" questions, give the main topics as one-line bullets.",
     "4. Put a citation at the end of a sentence or bullet. Do not repeat the same citation after every line; cite each source once per paragraph or list.",
     "   Never write a sentence whose only job is to say which note something came from; the citation already says that.",
+    "   Write a formula of your own in LaTeX between \\( and \\), e.g. \\(\\frac{1}{1 - MPC}\\); never use $ for math. Quotes inside citations stay exactly as the note has them.",
   ];
   if (useGeneralKnowledge) {
     base.push(

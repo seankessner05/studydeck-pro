@@ -334,6 +334,39 @@ test.describe("fixing cards while studying", () => {
   });
 });
 
+test.describe("math", () => {
+  test("formulas on a card are typeset, dollar amounts are not, and a broken formula is refused", async ({ page }) => {
+    const problems = watch(page);
+    const stamp = Date.now();
+    const made = await page.request.post("/api/study/cards", { data: { course: "ECON300", front: `A $5 rebate with \\(MPC = 0.75\\): what is \\(\\frac{1}{1 - MPC}\\)? (${stamp})`, back: "\\(\\frac{1}{1 - 0.75} = 4\\)" } });
+    expect(made.ok()).toBe(true);
+    const broken = await page.request.post("/api/study/cards", { data: { course: "ECON300", front: "Broken \\(\\frac{1}{2\\)", back: "x" } });
+    expect(broken.status()).toBe(400);
+    expect((await broken.json()).error).toContain("formula can't be shown");
+
+    await openStudy(page);
+    await page.locator("#startStudy").click();
+    // find our card in the session (it is new, so it is in today's queue); read the card itself, once the player is up
+    const body = page.locator("#studyBody .flip");
+    const position = page.locator("#studyBody").getByText(/^\d+ \/ \d+$/);
+    await expect(page.locator("#revealBtn")).toBeVisible();
+    for (let i = 0; i < 30 && !(await body.innerText()).includes(String(stamp)); i++) {
+      const at = await position.innerText();
+      await page.locator("#revealBtn").click();
+      await page.locator('[data-grade="3"]').click();
+      await expect(position).not.toHaveText(at);
+      await expect(page.locator("#revealBtn")).toBeVisible();
+    }
+    await expect(body).toContainText(String(stamp));
+    await expect(body.locator(".katex")).toHaveCount(2);
+    await expect(body).toContainText("$5 rebate"); // money stays text
+    await page.locator("#revealBtn").click();
+    await expect(body.locator(".katex")).toHaveCount(3);
+    expect(await body.locator(".katex-error").count()).toBe(0);
+    expect(problems).toEqual([]);
+  });
+});
+
 test.describe("today", () => {
   test("Study opens on Today; Start walks the plan step by step, and the run can be resumed", async ({ page }) => {
     const problems = watch(page);
