@@ -73,7 +73,7 @@ export function renderProblemPlay() {
       <tbody>${r.steps.map((s, i) => `<tr class="border-t border-slate-100 dark:border-ink-700"><td class="px-3 py-2 align-top"><div class="font-bold">${i + 1}. ${esc(s.label)}</div><div class="text-xs text-slate-500 dark:text-slate-400">${esc(s.explain)}</div></td>
         <td class="px-3 py-2 align-top font-mono text-xs text-slate-600 dark:text-slate-300">${esc(s.expr)}</td><td class="px-3 py-2 text-right align-top font-extrabold tabular-nums">${fmtNum(s.value)}</td></tr>`).join("")}</tbody></table></div>` : "";
   const feedback = r ? `<div class="fade-in space-y-3">
-      <div class="rounded-2xl px-4 py-3 ${r.correct ? "bg-emerald-100 text-emerald-900 dark:bg-emerald-500/20 dark:text-emerald-200" : "bg-red-50 text-red-900 dark:bg-red-500/10 dark:text-red-200"}">
+      <div role="status" aria-live="polite" class="rounded-2xl px-4 py-3 ${r.correct ? "bg-emerald-100 text-emerald-900 dark:bg-emerald-500/20 dark:text-emerald-200" : "bg-red-50 text-red-900 dark:bg-red-500/10 dark:text-red-200"}">
         <div class="text-base font-extrabold">${r.correct ? (r.attempt > 1 ? "Got it this time 💪" : PRB.hinted ? "Correct, with a hint" : "Correct! 🎉") : r.gaveUp ? "Here's how it works" : "Not quite"}</div>
         <div class="mt-1 text-sm font-medium">The answer is <b>${esc(fmtUnit(r.answer, r.unit))}</b>.${!r.correct && r.off !== null ? ` You were off by ${Math.round(r.off * 100)}%.` : ""} The app computed every step below itself.</div></div>
       ${steps}

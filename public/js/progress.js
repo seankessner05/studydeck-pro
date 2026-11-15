@@ -1,3 +1,4 @@
+import { icon } from "./icons.js";
 import { $, S, api, barOf, btnGhost, btnPrimary, esc, fmtDate, loadingHtml, palette, panelCls, plural, state, toneOf } from "./core.js";
 import { selectCourse } from "./shell.js";
 import { loadStudyToday, renderStudy, startStudySession } from "./cards.js";
@@ -21,7 +22,7 @@ export async function loadProgress() {
   if (state.view === "study" && S.sub === "progress") renderProgress();
 }
 
-export const PLAN_ICON = { generate: "✨", cards: "🃏", quiz: "📝", problems: "🧮", tutor: "🗣️", exam: "🎯" };
+export const PLAN_ICON = { generate: icon("sparkles"), cards: icon("cards"), quiz: icon("quiz"), problems: icon("problems"), tutor: icon("tutor"), exam: icon("exam") };
 export const LEVEL_LABEL = { unknown: "not practiced yet", weak: "needs work", shaky: "getting there", solid: "solid" };
 
 export function masteryBar(m) {
@@ -59,7 +60,7 @@ export function renderProgress() {
     ${ins ? `<div class="${panelCls}"><div class="mb-2 text-xs font-extrabold uppercase tracking-wider text-slate-400">Worth knowing</div><ul class="space-y-2">${ins}</ul></div>` : ""}
     <div class="${panelCls} !p-3"><div class="px-3 pt-2 pb-1 text-xs font-extrabold uppercase tracking-wider text-slate-400">Every lecture · click for sections</div>${lect || '<div class="p-3 text-sm text-slate-400">No lectures yet.</div>'}
       <div class="px-3 pt-2 text-[11px] font-semibold text-slate-400">Mastery comes from what you actually answered (card ratings, quiz and problem first tries, teach-backs). Recent answers count more, a success with a hint counts half, and with too little practice it says so instead of guessing.</div></div>
-    <div class="${panelCls} flex flex-wrap items-center gap-3"><button data-backup-now class="${btnGhost}">💾 Back up my study data</button><button data-restore-open class="${btnGhost}">Restore a backup…</button><span id="studyToolMsg" class="text-xs font-semibold text-slate-400">${last ? `Last backup: ${new Date(last.at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}. A copy is made automatically once a day.` : "No backups yet. One is made automatically once a day."}</span></div>
+    <div class="${panelCls} flex flex-wrap items-center gap-3"><button data-backup-now class="${btnGhost}">${icon("save", "mr-1 h-4 w-4")}Back up my study data</button><button data-restore-open class="${btnGhost}">Restore a backup…</button><span id="studyToolMsg" class="text-xs font-semibold text-slate-400">${last ? `Last backup: ${new Date(last.at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}. A copy is made automatically once a day.` : "No backups yet. One is made automatically once a day."}</span></div>
   </div>`;
 }
 

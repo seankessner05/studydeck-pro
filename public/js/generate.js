@@ -1,3 +1,4 @@
+import { icon } from "./icons.js";
 import { $, G, S, courseName, esc, fmtDate, palette, plural, state } from "./core.js";
 import { noteCache } from "./notes.js";
 import { loadStudyToday } from "./cards.js";
@@ -9,7 +10,7 @@ export const GEN_CHIP = {
   generated: ["Done", "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300"],
   stale: ["Edited since", "bg-sun/30 text-amber-800 dark:text-sun"],
 };
-export const GEN_STATE_ICON = { queued: "⏳", running: "✍️", done: "✅", error: "⚠️", skipped: "⏭️" };
+export const GEN_STATE_ICON = { queued: icon("hourglass", "h-4 w-4 text-slate-400"), running: icon("pen", "h-4 w-4 text-brand-500"), done: icon("check", "h-4 w-4 text-emerald-500"), error: icon("warn", "h-4 w-4 text-red-500"), skipped: icon("skip", "h-4 w-4 text-slate-400") };
 
 // The same panel makes flashcards (Flashcards tab) or quiz questions (Quizzes tab); everything that differs lives here.
 export const GEN_CFG = {

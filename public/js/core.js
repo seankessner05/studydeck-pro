@@ -1,3 +1,4 @@
+import { icon } from "./icons.js";
 // StudyDeck front end: plain JS, no build step.
 export const $ = (id) => document.getElementById(id);
 export const state = {
@@ -33,7 +34,7 @@ export const PALETTE_CLASSES = {
 };
 
 export const BAD_CHIP = "bg-red-500 text-white";
-export const PROFILE_ICON = { "quant-econ": "📈", finance: "💹", accounting: "🧾", general: "📚" };
+export const PROFILE_ICON = { "quant-econ": "trend", finance: "finance", accounting: "ledger", general: "book" };
 
 // Curated questions for the built-in sample notes (the last one is deliberately not covered, to show "Not in your notes").
 export const SAMPLE_QUESTIONS = [
@@ -59,7 +60,8 @@ export const inline = (s) => s.replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace(/`
 export const courseOf = (id) => state.courses.find((c) => c.id === id);
 export const palette = (id) => PALETTE_CLASSES[id === "all" ? "all" : courseOf(id)?.color ?? "slate"] ?? PALETTE_CLASSES.slate;
 export const courseName = (id) => (id === "all" ? "Everything" : id === "unsorted" ? "Inbox" : courseOf(id)?.name ?? id);
-export const iconFor = (id) => (id === "all" ? "✨" : id === "unsorted" ? "📥" : PROFILE_ICON[courseOf(id)?.profile] ?? "📚");
+/** A class's tile icon, as HTML. */
+export const iconFor = (id, cls = "h-[1.15em] w-[1.15em]") => icon(id === "all" ? "sparkles" : id === "unsorted" ? "inbox" : PROFILE_ICON[courseOf(id)?.profile] ?? "book", cls);
 export const fmtDate = (iso) => (iso ? new Date(iso + "T12:00").toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "");
 export const ago = (iso) => {
   const m = Math.round((Date.now() - new Date(iso).getTime()) / 60000);

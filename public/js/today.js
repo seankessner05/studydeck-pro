@@ -1,3 +1,4 @@
+import { icon } from "./icons.js";
 // ---- Today: one place to start, across every class ----
 // Shows the next exams with readiness and what would raise it, and one Start button that walks today's plan step by
 // step. While a run is going, a bar above the study area says which step you're on, with Next and Stop.
@@ -7,7 +8,7 @@ import { startPlanStep } from "./progress.js";
 
 const RUN_KEY = "today-run";
 const MIN_KEY = "today-minutes";
-const KIND_ICON = { generate: "✨", cards: "🃏", quiz: "📝", problems: "🧮", tutor: "🗣️", exam: "🎯" };
+const KIND_ICON = { generate: "sparkles", cards: "cards", quiz: "quiz", problems: "problems", tutor: "tutor", exam: "exam" };
 const todayKey = () => new Date().toLocaleDateString("en-CA");
 
 export const TD = { minutes: 45, plan: null, today: null, loading: false, run: null, summary: null };
@@ -54,7 +55,7 @@ function stepsHtml(items, run) {
     const current = run && !done && run.idx === i;
     return `<li class="flex items-center gap-3 rounded-xl px-3 py-2.5 ${current ? "bg-brand-50 ring-1 ring-brand-200 dark:bg-brand-500/15 dark:ring-brand-500/30" : ""}">
         <span class="grid h-7 w-7 shrink-0 place-items-center rounded-full text-xs font-extrabold ${done ? "bg-emerald-500 text-white" : "bg-slate-100 text-slate-500 dark:bg-ink-700 dark:text-slate-300"}" aria-hidden="true">${done ? "✓" : i + 1}</span>
-        <span class="min-w-0 flex-1"><span class="block text-sm font-bold ${done ? "text-slate-400 line-through" : ""}">${KIND_ICON[it.kind] ?? ""} ${esc(it.title)} <span class="text-[10px] font-extrabold text-slate-400">${esc(it.course)}</span></span><span class="block text-xs text-slate-500 dark:text-slate-400">${esc(it.detail)}</span></span>
+        <span class="min-w-0 flex-1"><span class="block text-sm font-bold ${done ? "text-slate-400 line-through" : ""}">${icon(KIND_ICON[it.kind] ?? "", "mr-1 h-4 w-4 text-slate-400")}${esc(it.title)} <span class="text-[10px] font-extrabold text-slate-400">${esc(it.course)}</span></span><span class="block text-xs text-slate-500 dark:text-slate-400">${esc(it.detail)}</span></span>
         <span class="shrink-0 text-xs font-bold text-slate-400">${it.minutes} min</span>
         <span class="sr-only">${done ? "done" : current ? "next up" : ""}</span>
       </li>`;
@@ -82,7 +83,7 @@ export function renderToday() {
         ${run ? "" : `<div class="flex flex-wrap gap-1.5" role="group" aria-label="How much time do you have">${mins}</div>`}
       </div>
       ${items.length ? stepsHtml(items, run) : `<p class="text-sm font-semibold text-slate-500">Nothing to do right now. Nice.</p>`}
-      ${!run && p.optional?.length ? `<div class="rounded-xl bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900 dark:bg-amber-500/10 dark:text-amber-100">${p.optional.map((o, i) => `${esc(o.title)} (${esc(o.course)}): ${esc(o.detail)} <button data-today-optional="${i}" class="ml-1 font-extrabold underline">Make it</button>`).join("<br>")}</div>` : ""}
+      ${!run && p.optional?.length ? `<div class="rounded-xl bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900 dark:bg-amber-500/10 dark:text-amber-100">${p.optional.map((o, i) => `<div class="flex flex-wrap items-center gap-2"><span class="min-w-0 flex-1">${esc(o.title)} (${esc(o.course)}): ${esc(o.detail)}</span><button data-today-optional="${i}" class="min-h-10 rounded-lg bg-amber-200/70 px-3 font-extrabold text-amber-950 hover:bg-amber-200 dark:bg-amber-400/20 dark:text-amber-100">Make it</button></div>`).join("")}</div>` : ""}
       ${items.length ? `<div class="flex flex-wrap gap-3">${run
         ? `<button data-today-resume class="${btnPrimary} min-h-12 !px-8 !text-base">Continue: step ${Math.min(run.idx + 1, items.length)} →</button><button data-today-stop class="${btnGhost} min-h-12">Start over</button>`
         : `<button data-today-start class="${btnPrimary} min-h-12 !px-8 !text-base">Start</button>`}</div>` : ""}

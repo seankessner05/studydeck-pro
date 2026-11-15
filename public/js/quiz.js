@@ -1,3 +1,4 @@
+import { icon } from "./icons.js";
 import { $, Q, S, api, courseName, esc, palette, plural, state } from "./core.js";
 import { refreshState } from "./shell.js";
 import { loadStudyToday, renderStudy, statTile } from "./cards.js";
@@ -10,8 +11,8 @@ export const KIND_SHORT = { single: "Pick 1", multi: "Select all", tf: "T / F" }
 export const LETTER = "ABCDE";
 
 export function subSwitch() {
-  const tabs = [["today", "☀️", "Today"], ["cards", "🃏", "Cards"], ["quiz", "📝", "Quiz"], ["problems", "🧮", "Problems"], ["tutor", "🗣️", "Tutor"], ["exam", "🎯", "Exam"], ["progress", "📊", "Progress"]];
-  return `<div class="flex gap-1 overflow-x-auto rounded-2xl bg-slate-100 p-1 [scrollbar-width:none] dark:bg-ink-800">${tabs.map(([id, ic, label]) => `<button data-sub="${id}" class="shrink-0 grow rounded-xl px-3 py-2 text-sm font-extrabold whitespace-nowrap transition ${S.sub === id ? "bg-white text-brand-700 shadow-card dark:bg-ink-600 dark:text-brand-200" : "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"}">${ic} ${label}</button>`).join("")}</div>`;
+  const tabs = [["today", "today", "Today"], ["cards", "cards", "Cards"], ["quiz", "quiz", "Quiz"], ["problems", "problems", "Problems"], ["tutor", "tutor", "Tutor"], ["exam", "exam", "Exam"], ["progress", "progress", "Progress"]];
+  return `<div class="flex gap-1 overflow-x-auto rounded-2xl bg-slate-100 p-1 [scrollbar-width:none] dark:bg-ink-800">${tabs.map(([id, ic, label]) => `<button data-sub="${id}" aria-current="${S.sub === id ? "page" : "false"}" class="inline-flex min-h-11 shrink-0 grow items-center justify-center gap-1.5 rounded-xl px-3 text-sm font-extrabold whitespace-nowrap transition ${S.sub === id ? "bg-white text-brand-700 shadow-card dark:bg-ink-600 dark:text-brand-200" : "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"}">${icon(ic, "h-4 w-4")}${label}</button>`).join("")}</div>`;
 }
 
 export function setSub(sub) {
@@ -104,7 +105,7 @@ export function renderQuizPlay() {
   if (r) {
     const ex = Q.explain;
     feedback = `<div class="fade-in space-y-3">
-      <div class="rounded-2xl px-4 py-3 ${r.correct ? "bg-emerald-100 text-emerald-900 dark:bg-emerald-500/20 dark:text-emerald-200" : "bg-red-50 text-red-900 dark:bg-red-500/10 dark:text-red-200"}">
+      <div role="status" aria-live="polite" class="rounded-2xl px-4 py-3 ${r.correct ? "bg-emerald-100 text-emerald-900 dark:bg-emerald-500/20 dark:text-emerald-200" : "bg-red-50 text-red-900 dark:bg-red-500/10 dark:text-red-200"}">
         <div class="text-base font-extrabold">${r.correct ? (r.attempt > 1 ? "Got it this time 💪" : "Correct! 🎉") : q.kind === "multi" ? "Not quite: you need every right option and no wrong ones" : "Not quite"}</div>
         <div class="mt-1 text-sm leading-relaxed font-medium">${esc(r.explanation)}</div></div>
       ${r.quote ? `<div class="rounded-2xl bg-sun/20 px-4 py-3 text-left text-xs leading-relaxed text-amber-900 dark:text-sun"><div class="mb-1 text-[10px] font-extrabold uppercase tracking-wider opacity-70">From your notes</div>“${esc(r.quote)}”

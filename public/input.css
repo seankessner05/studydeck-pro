@@ -114,3 +114,29 @@ html { -webkit-font-smoothing: antialiased; }
   #sheetPrintArea h3 { font-size: 9pt; }
   @page { margin: 0.3in; }
 }
+
+/* Keyboard users always see where they are: a clear ring on whatever has focus (mouse clicks don't show it). */
+:focus-visible {
+  outline: 3px solid #6366f1;
+  outline-offset: 2px;
+}
+.dark :focus-visible {
+  outline-color: #a5b4fc;
+}
+
+/* On a phone every control is at least 44px tall, a size a thumb can hit (citation chips inside text excepted). */
+@media (max-width: 767px) {
+  button:not(.cite):not(.cite-foot),
+  select,
+  input:not([type="checkbox"]):not([type="radio"]),
+  a[download] {
+    min-height: 2.75rem;
+  }
+  button:not(.cite):not(.cite-foot) {
+    min-width: 2.75rem;
+  }
+  input[type="checkbox"] {
+    width: 1.25rem;
+    height: 1.25rem;
+  }
+}

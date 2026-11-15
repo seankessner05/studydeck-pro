@@ -1,3 +1,4 @@
+import { icon } from "./icons.js";
 import { $, Q, S, courseName, esc, palette, plural, state } from "./core.js";
 import { refreshState } from "./shell.js";
 import { genPanelHtml, resumeGeneration } from "./generate.js";
@@ -100,10 +101,10 @@ export function renderStudyHome() {
         <div class="mt-3 h-2 overflow-hidden rounded-full bg-slate-100 dark:bg-ink-700"><div class="h-full rounded-full bg-emerald-500" style="width:${acc.pct}%"></div></div>` : '<div class="text-sm font-semibold text-slate-400">No reviews yet. Your first session starts the chart. ✨</div>'}</div>
     </div>
     <div class="flex flex-wrap gap-2">
-      <button data-match-start class="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold shadow-card hover:bg-slate-50 dark:border-ink-600 dark:bg-ink-800 dark:hover:bg-ink-700">🎮 Match game</button>
-      <a href="/api/study/export/anki?course=${encodeURIComponent(state.course)}" download class="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold shadow-card hover:bg-slate-50 dark:border-ink-600 dark:bg-ink-800 dark:hover:bg-ink-700" title="A text file you can import into Anki (File → Import)">⬇ Anki file</a>
-      <button data-backup-now class="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold shadow-card hover:bg-slate-50 dark:border-ink-600 dark:bg-ink-800 dark:hover:bg-ink-700" title="A safety copy of your cards, history, quizzes and exams">💾 Back up my data</button>
-      <button data-trash-open class="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold shadow-card hover:bg-slate-50 dark:border-ink-600 dark:bg-ink-800 dark:hover:bg-ink-700" title="Deleted cards, questions and problems. Kept for 30 days.">🗑 Trash</button>
+      <button data-match-start class="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold shadow-card hover:bg-slate-50 dark:border-ink-600 dark:bg-ink-800 dark:hover:bg-ink-700">${icon("game", "mr-1 h-4 w-4")}Match game</button>
+      <a href="/api/study/export/anki?course=${encodeURIComponent(state.course)}" download class="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold shadow-card hover:bg-slate-50 dark:border-ink-600 dark:bg-ink-800 dark:hover:bg-ink-700" title="A text file you can import into Anki (File → Import)">${icon("download", "mr-1 h-4 w-4")}Anki file</a>
+      <button data-backup-now class="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold shadow-card hover:bg-slate-50 dark:border-ink-600 dark:bg-ink-800 dark:hover:bg-ink-700" title="A safety copy of your cards, history, quizzes and exams">${icon("save", "mr-1 h-4 w-4")}Back up my data</button>
+      <button data-trash-open class="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold shadow-card hover:bg-slate-50 dark:border-ink-600 dark:bg-ink-800 dark:hover:bg-ink-700" title="Deleted cards, questions and problems. Kept for 30 days.">${icon("trash", "mr-1 h-4 w-4")}Trash</button>
       <span id="studyToolMsg" class="self-center text-xs font-semibold text-slate-400"></span></div>
     <div id="genPanel">${genPanelHtml("cards")}</div>
 

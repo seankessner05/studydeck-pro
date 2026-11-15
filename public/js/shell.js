@@ -43,7 +43,7 @@ export function renderHeader() {
   $("scopeSub").textContent = [state.course !== "all" && state.course !== "unsorted" ? state.course : "", plural(count, "note"), latest ? `latest ${fmtDate(latest)}` : ""].filter(Boolean).join(" · ");
   const hi = $("heroIcon");
   hi.className = `grid h-12 w-12 shrink-0 place-items-center rounded-2xl text-2xl md:h-14 md:w-14 md:text-3xl ${palette(state.course).tile}`;
-  hi.textContent = iconFor(state.course);
+  hi.innerHTML = iconFor(state.course);
   $("notesCount").textContent = count;
   $("sourceBadge").classList.toggle("hidden", state.source !== "samples");
   $("sourceBadge").innerHTML = `<span class="sm:hidden">${state.demo ? "Demo" : "Samples"}</span><span class="hidden sm:inline">${state.demo ? "Demo mode · sample notes" : "Sample notes"}</span>`;
