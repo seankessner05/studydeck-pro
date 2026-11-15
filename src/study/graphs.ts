@@ -57,7 +57,8 @@ export class GraphError extends Error {}
 const MAX_CURVES = 6;
 const MAX_POINTS = 4;
 const SAMPLES = 200;
-const LABEL = /^[A-Za-z0-9(Δ][A-Za-z0-9 ()'’_₀-₉,./=+*°Δ-]{0,23}$/;
+// Letters (Greek too: δ, π, Δ), digits, subscripts and the symbols economists put in curve names: AD′, L(r,Y), (δ+n+g)k, 45°.
+const LABEL = /^[A-Za-z0-9(\u0391-\u03c9][A-Za-z0-9\u0391-\u03c9 ()'’′_₀-₉,./=+*°-]{0,23}$/;
 
 const num = (v: unknown): number | undefined => (typeof v === "number" && Number.isFinite(v) ? v : typeof v === "string" && v.trim() !== "" && Number.isFinite(Number(v)) ? Number(v) : undefined);
 const text = (v: unknown, max: number) => (typeof v === "string" ? v.replace(/\s+/g, " ").trim().slice(0, max) : "");

@@ -42,6 +42,8 @@ describe("parseGraph", () => {
     expect(buildFigure(solow).points).toEqual([{ label: "SS", x: 81, y: 8.1 }]);
     // labels economists use: a 45° line, a starred equilibrium
     expect(() => parseGraph({ ...adas, curves: [...adas.curves, { label: "45°", y: "x / 20" }], points: [] })).not.toThrow();
+    expect(() => parseGraph({ ...adas, curves: [...adas.curves, { label: "(δ+n+g)k", y: "x / 25" }, { label: "Δπ", y: "3" }], points: [] })).not.toThrow();
+    expect(() => parseGraph({ ...adas, curves: [{ label: "<b>x</b>", y: "3" }], points: [] })).toThrow(/label/);
   });
 });
 
