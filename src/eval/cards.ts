@@ -99,7 +99,9 @@ async function main() {
     console.error(`\n✖ Claude Code isn't logged in. ${LOGIN_FIX}\n`);
     process.exit(2);
   }
-  const notes = pickEvalNotes(SAMPLE_DIR, Number(arg("per-class") ?? 2));
+  // --notes <folder> --ids <COURSE/file.md,...> runs on real lectures instead of the sample ones.
+  const ids = arg("ids")?.split(",").map((x) => x.trim()).filter(Boolean);
+  const notes = ids ? loadNotes("all", path.resolve(arg("notes") ?? "notes")).filter((n) => ids.includes(n.id)) : pickEvalNotes(SAMPLE_DIR, Number(arg("per-class") ?? 2));
   const min = Number(arg("min") ?? 0.6);
   console.log(`Generating cards for ${notes.length} sample lectures (3 at a time)…\n`);
   const rows = await evalAll(notes, runClaude, 3, (r) => {

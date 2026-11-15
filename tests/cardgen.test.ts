@@ -198,3 +198,42 @@ describe("generating for one lecture", () => {
     expect(r.rejected[0].reason).toBe("duplicate");
   });
 });
+
+describe("fill-in (cloze) cards", () => {
+  const cloze = { kind: "cloze", quote: "Multiplier becomes 1 / (1 − MPC(1 − t)).", blank: "1 / (1 − MPC(1 − t))", section: "Notes" };
+  const long = { kind: "cloze", quote: "The multiplier amplifies spending because one person's spending is another person's income.", blank: "another person's income" };
+
+  it("builds the front and back itself from a sentence that is really in the note", () => {
+    const { accepted, rejected } = validateCards([long], fiscal, [], 8);
+    expect(rejected).toEqual([]);
+    expect(accepted[0]).toMatchObject({ front: "The multiplier amplifies spending because one person's spending is _____.", back: "another person's income", quote: long.quote });
+  });
+
+  it("rejects a sentence that isn't in the note, a blank that isn't in the sentence, and filler blanks", () => {
+    const reason = (over: object) => validateCards([{ ...long, ...over }], fiscal, [], 8).rejected[0]?.reason;
+    expect(reason({ quote: "The multiplier amplifies spending because everyone loves spending more money." })).toBe("quote_not_found");
+    expect(reason({ blank: "someone else's savings" })).toBe("bad_cloze");
+    expect(reason({ blank: "because one" })).toBeUndefined(); // meaningful enough
+    expect(reason({ blank: "is" })).toBe("bad_cloze");
+    expect(reason({ blank: "spending because one person's spending is another" })).toBe("bad_cloze"); // 7 words
+    expect(reason({ quote: "Multiplier is 5." })).toBe("bad_cloze"); // too short to be a sentence
+    expect(validateCards([cloze], fiscal, [], 8).rejected[0]?.reason).toBe("bad_cloze"); // 5 words: too short
+  });
+
+  it("keeps fill-ins to a third of a lecture's cards", () => {
+    const three = [
+      long,
+      { kind: "cloze", quote: "Taxes, saving, and imports each reduce it.", blank: "imports" },
+      { kind: "cloze", quote: "With MPC = 0.8 the multiplier is 1 / (1 − 0.8) = 5.", blank: "1 / (1 − 0.8) = 5" },
+    ];
+    const r = validateCards(three, fiscal, [], 3);
+    expect(r.accepted).toHaveLength(1);
+    expect(r.rejected.map((x) => x.reason)).toContain("too_many_cloze");
+  });
+
+  it("shows markdown escapes from the note as plain characters", () => {
+    const note = { ...fiscal, body: fiscal.body + "\n- The Federal Reserve Act (1913, revised \\~1932) mandates low and stable inflation." };
+    const r = validateCards([{ kind: "cloze", quote: "The Federal Reserve Act (1913, revised \\~1932) mandates low and stable inflation.", blank: "low and stable inflation" }], note, [], 8);
+    expect(r.accepted[0].front).toBe("The Federal Reserve Act (1913, revised ~1932) mandates _____.");
+  });
+});

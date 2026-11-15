@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import type { Runner } from "../claude.js";
 import type { Course } from "../courses.js";
 import { normalize } from "../citations.js";
+import { unseenReference } from "./standalone.js";
 import type { Note } from "../notes.js";
 import { profileGuidance } from "../profiles.js";
 
@@ -47,6 +48,9 @@ export type RejectReason =
   | "quote_too_short"
   | "quote_not_found"
   | "number_not_in_note"
+  | "bad_cloze"
+  | "too_many_cloze"
+  | "not_self_contained"
   | "duplicate";
 
 export const REJECT_LABEL: Record<RejectReason, string> = {
@@ -57,6 +61,9 @@ export const REJECT_LABEL: Record<RejectReason, string> = {
   quote_too_short: "receipt quote too short",
   quote_not_found: "receipt quote isn't in the note",
   number_not_in_note: "contains a number that isn't in the note",
+  bad_cloze: "the fill-in blank isn't 1 to 6 meaningful words copied from its sentence",
+  too_many_cloze: "too many fill-in cards for one lecture",
+  not_self_contained: "points at something the card doesn't show (a graph's lettered areas, “in class”)",
   duplicate: "duplicate of an existing card",
 };
 
@@ -95,9 +102,10 @@ export function buildCardPrompts(note: Note, opts: PromptOptions): { system: str
     "6. Skip administrative content: logistics, homework or exam dates, attendance, office hours, grades, announcements, guest-speaker scheduling. Only write a card from those parts if they teach a concept.",
     "7. Do not invent anything. Every fact and every number on a card must come from the note. Do not add outside knowledge.",
     "8. No two cards may test the same thing.",
+    '9. FILL-IN CARDS: for a formula, a condition or a key definition worth knowing word for word, you may instead write a fill-in card: {"kind":"cloze","quote":"<one sentence or formula copied EXACTLY from the note, 6 to 30 words>","blank":"<the 1 to 6 words to hide, copied exactly from that quote>","section":"..."}. Hide the part worth remembering (the formula\'s right-hand side, the defined term), never filler. At most a third of your cards may be fill-ins. Never use a sentence that only makes sense with a graph (lettered areas or points).',
     style ? `\nCOURSE STYLE\n${style}` : "",
     "",
-    'OUTPUT: ONLY a JSON array, no prose and no code fences: [{"front":"...","back":"...","quote":"...","section":"..."}]',
+    'OUTPUT: ONLY a JSON array, no prose and no code fences: [{"front":"...","back":"...","quote":"...","section":"..."},{"kind":"cloze","quote":"...","blank":"...","section":"..."}]',
   ]
     .filter((l) => l !== "")
     .join("\n");
@@ -184,6 +192,36 @@ export function sectionFor(body: string, quote: string): string | undefined {
  * The gate every generated card has to pass. Nothing the model says is trusted: the receipt quote must really be in
  * the note, and numbers must come from the note too. Accepts up to `max` cards; everything else is reported with why.
  */
+/** Words too common to be worth hiding on a fill-in card. */
+const FILLER = new Set("a an the of to and or in on for is are be by with that this it as at from its their was were".split(" "));
+export const CLOZE_BLANK = "_____";
+
+/**
+ * A fill-in card made by the app from a sentence Claude copied out of the note: the sentence must really be there,
+ * and the hidden words must be a short, meaningful piece of it. The app writes the front (the sentence with the
+ * blank) and the back (the hidden words) itself.
+ */
+function clozeCard(c: Record<string, unknown>, note: Note, noteNorm: string, seen: string[]): GeneratedCard | Rejected {
+  const quote = typeof c.quote === "string" ? c.quote.replace(/\s+/g, " ").trim() : "";
+  const blank = typeof c.blank === "string" ? c.blank.replace(/\s+/g, " ").trim() : "";
+  const label = quote || "(empty fill-in)";
+  if (!quote || !blank) return { front: label, reason: "malformed" };
+  const words = wordCount(quote);
+  if (words < 6 || words > 30) return { front: label, reason: "bad_cloze", detail: "the sentence should be 6 to 30 words" };
+  if (!noteNorm.includes(normalize(quote))) return { front: label, reason: "quote_not_found", detail: quote.slice(0, 80) };
+  const at = quote.indexOf(blank);
+  const blankWords = blank.split(" ").filter(Boolean);
+  if (at < 0 || blankWords.length > 6 || blank.length < 2 || blankWords.every((w) => FILLER.has(w.toLowerCase()))) return { front: label, reason: "bad_cloze", detail: blank.slice(0, 60) };
+  const unseen = unseenReference(quote);
+  if (unseen) return { front: label, reason: "not_self_contained", detail: unseen };
+  // Notes keep markdown escapes ("\\~1932"); the card shows the plain character.
+  const plain = (t: string) => t.replace(/\\([~*_`#|\\[\]()])/g, "$1");
+  const front = plain(`${quote.slice(0, at)}${CLOZE_BLANK}${quote.slice(at + blank.length)}`);
+  if (seen.some((f) => normalize(f) === normalize(front) || jaccard(f, front) >= 0.8)) return { front, reason: "duplicate" };
+  const claimed = typeof c.section === "string" ? c.section.trim() : "";
+  return { front, back: plain(blank), quote, section: sectionFor(note.body, quote) ?? (claimed || note.title) };
+}
+
 export function validateCards(
   raw: unknown[],
   note: Note,
@@ -196,8 +234,20 @@ export function validateCards(
   const noteNumbers = new Set(checkableNumbers(note.body));
   const seen = [...existingFronts];
 
+  const clozeCap = Math.max(1, Math.ceil(Math.min(max, raw.length) / 3));
+  let clozes = 0;
   for (const item of raw) {
     const c = item as Partial<RawCard> | null;
+    if ((c as { kind?: unknown } | null)?.kind === "cloze") {
+      const r = clozeCard(c as Record<string, unknown>, note, noteNorm, seen);
+      if ("reason" in r) { rejected.push(r); continue; }
+      if (clozes >= clozeCap) { rejected.push({ front: r.front, reason: "too_many_cloze" }); continue; }
+      if (accepted.length >= max) break;
+      clozes++;
+      seen.push(r.front);
+      accepted.push(r);
+      continue;
+    }
     const front = typeof c?.front === "string" ? c.front.replace(/\s+/g, " ").trim() : "";
     const back = typeof c?.back === "string" ? c.back.replace(/\n{3,}/g, "\n\n").trim() : "";
     const quote = typeof c?.quote === "string" ? c.quote.trim() : "";
