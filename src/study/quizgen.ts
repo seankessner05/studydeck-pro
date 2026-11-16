@@ -2,7 +2,7 @@ import type { Runner } from "../claude.js";
 import type { Course } from "../courses.js";
 import { normalize } from "../citations.js";
 import type { Note } from "../notes.js";
-import { profileGuidance } from "../profiles.js";
+import { materialGuidance, profileGuidance } from "../profiles.js";
 import { MATH_RULE, mathProblem, plainMath } from "./mathtext.js";
 import { CALL_TIMEOUT_MS, checkableNumbers, isCompoundQuestion, jaccard, parseJsonList, sectionFor, type Density } from "./cardgen.js";
 import { copiesNote, unseenReference } from "./standalone.js";
@@ -127,6 +127,7 @@ export function buildQuestionPrompts(note: Note, opts: QuizPromptOptions): { sys
     '13. GRAPHS: where SEEING a graph is the point (which curve shifts, where the new equilibrium is, reading a value off it), you may attach "graph" to a question. The app draws it from your equations, so it is exact. Refer to it as "the graph" and use its curve and point labels exactly ("curve AD", "point E1"). The graph shows the situation AFTER or BEFORE a change, or both (a moved curve gets its own label, e.g. AD2, with "dashed": true). Never ask about areas. Any number in the right answer or explanation must be written in the stem or marked on the graph ("values": true). When the note teaches a graph (supply and demand, AD-AS, IS-LM, the money market, the Keynesian cross, the Solow diagram...), write at least one question that comes with that graph; at most a third of the questions get one.',
     `   ${GRAPH_SPEC_RULE}`,
     style ? `\nCOURSE STYLE\n${style}` : "",
+    materialGuidance(opts.courses, note.course, "quiz") ? `\nSUBJECT\n${materialGuidance(opts.courses, note.course, "quiz")}` : "",
     "",
     'OUTPUT: ONLY a JSON array, no prose and no code fences. Examples of the three shapes: [{"kind":"single","stem":"...","options":["...","...","...","..."],"answer":["B"],"explanation":"...","quote":"...","section":"..."},{"kind":"multi","stem":"Select all that apply: ...","options":["...","...","...","...","..."],"answer":["A","D"],"explanation":"...","quote":"...","section":"..."},{"kind":"tf","stem":"...","answer":true,"explanation":"...","quote":"...","section":"..."}]',
   ]

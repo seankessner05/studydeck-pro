@@ -5,7 +5,7 @@ import { normalize } from "../citations.js";
 import { unseenReference } from "./standalone.js";
 import { MATH_RULE, mathProblem, plainMath, repairLatexEscapes } from "./mathtext.js";
 import type { Note } from "../notes.js";
-import { profileGuidance } from "../profiles.js";
+import { materialGuidance, profileGuidance } from "../profiles.js";
 
 export type Density = "light" | "normal" | "thorough";
 export const DENSITY_TARGET: Record<Density, number> = { light: 5, normal: 8, thorough: 14 };
@@ -108,6 +108,7 @@ export function buildCardPrompts(note: Note, opts: PromptOptions): { system: str
     '9. FILL-IN CARDS: for a formula, a condition or a key definition worth knowing word for word, you may instead write a fill-in card: {"kind":"cloze","quote":"<one sentence or formula copied EXACTLY from the note, 6 to 30 words>","blank":"<the 1 to 6 words to hide, copied exactly from that quote>","section":"..."}. Hide the part worth remembering (the formula\'s right-hand side, the defined term), never filler. At most a third of your cards may be fill-ins. Never use a sentence that only makes sense with a graph (lettered areas or points).',
     `10. ${MATH_RULE} A formula from the note may be written in LaTeX on the front or back; fill-in cards stay exactly as the note has them.`,
     style ? `\nCOURSE STYLE\n${style}` : "",
+    materialGuidance(opts.courses, note.course, "cards") ? `\nSUBJECT\n${materialGuidance(opts.courses, note.course, "cards")}` : "",
     "",
     'OUTPUT: ONLY a JSON array, no prose and no code fences: [{"front":"...","back":"...","quote":"...","section":"..."},{"kind":"cloze","quote":"...","blank":"...","section":"..."}]',
   ]

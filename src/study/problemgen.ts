@@ -3,7 +3,7 @@ import type { Runner } from "../claude.js";
 import type { Course } from "../courses.js";
 import { normalize } from "../citations.js";
 import type { Note } from "../notes.js";
-import { profileGuidance } from "../profiles.js";
+import { materialGuidance, profileGuidance } from "../profiles.js";
 import { MATH_RULE, mathProblem, plainMath } from "./mathtext.js";
 import { GRAPH_SPEC_RULE, GraphError, buildFigure, parseGraph, shownNumbers, type GraphSpec } from "./graphs.js";
 import { CALL_TIMEOUT_MS, jaccard, parseJsonList, sectionFor, type Density } from "./cardgen.js";
@@ -168,6 +168,7 @@ export function buildProblemPrompts(note: Note, opts: ProblemPromptOptions): { s
     '12. GRAPHS: when the note works with a graph (supply and demand, AD-AS, money market, IS-LM...), a problem may come with "graph": the app draws it exactly from your equations. Use the same numbers as the stem (the graph shows the setup; the student still computes the answer). With "values": true, the marked points\' coordinates may serve as givens instead of being written in the stem. Never ask about areas.',
     `   ${GRAPH_SPEC_RULE}`,
     style ? `\nCOURSE STYLE\n${style}` : "",
+    materialGuidance(opts.courses, note.course, "problems") ? `\nSUBJECT\n${materialGuidance(opts.courses, note.course, "problems")}` : "",
     "",
     'OUTPUT: ONLY a JSON array, no prose and no code fences: [{"stem":"...","givens":[{"name":"...","value":0,"label":"..."}],"steps":[{"name":"...","label":"...","expr":"...","explain":"..."}],"unit":"...","quote":"...","section":"..."}]',
   ]

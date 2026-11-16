@@ -347,8 +347,10 @@ export function validateExamQuestion(raw: unknown, b: Blueprint, notes: Note[]):
         try {
           plot = parseGraph(pp.figure);
           if (!plot.points.length) throw new GraphError("the figure needs its starting equilibrium as a point");
-          if (!plot.curves.some((c) => c.after)) throw new GraphError("no curve in the figure moves");
-          const eq = equilibriumShift(plot)!; // throws if the moved curves no longer cross
+          // When no curve moves (a price ceiling drawn as a line, a tax wedge), the drawing is still checked and shown,
+          // but where the market ends up isn't a crossing of moved curves, so the effects are left to the no-notes solve.
+          const moved = plot.curves.some((c) => c.after);
+          const eq = moved ? equilibriumShift(plot)! : undefined; // throws if the moved curves no longer cross
           for (const c of curves) {
             const fc = plot.curves.find((k) => nameKey(k.label) === nameKey(c.name));
             if (!fc) throw new GraphError(`curve ${c.name} isn't in the figure`);
@@ -360,8 +362,8 @@ export function validateExamQuestion(raw: unknown, b: Blueprint, notes: Note[]):
             checked.push(c.name);
           }
           for (const e of effects) {
-            const ax = axisFor(e.name, plot);
-            if (!ax) continue;
+            const ax = eq ? axisFor(e.name, plot) : undefined;
+            if (!ax || !eq) continue;
             if (eq[ax] !== e.key) return reject("graph_key_wrong", `part ${label}: the key says ${e.name} ${e.key}, the equilibrium says ${eq[ax]}`);
             checked.push(e.name);
           }

@@ -254,3 +254,23 @@ describe("graph parts with a figure: the app works out the answer from the equat
     expect(buildExamSolverPrompts("Macro", [q]).prompt).toContain("[Starting graph shown: Graph: horizontal axis Output (Y)");
   });
 });
+
+describe("a graph part where nothing moves (a price ceiling)", () => {
+  const ceiling = {
+    x: { label: "Quantity (Q)", max: 100 }, y: { label: "Price (P)", max: 50 },
+    curves: [{ label: "D", y: "50 - 0.5*x" }, { label: "S", y: "0.5*x" }, { label: "Ceiling", y: "15" }],
+    points: [{ label: "E", on: ["D", "S"] }],
+  };
+  const part = (curves: object[], effects: object[]) => ({ ...q2, parts: [{ ...q2.parts[0], graph: "supply and demand", curves, effects, figure: ceiling }] });
+
+  it("draws and checks the curves (they stay put), and leaves the effects to the solver", () => {
+    const v = validateExamQuestion(part([{ name: "D", choices: ["right", "left", "none"], key: "none" }, { name: "S", choices: ["right", "left", "none"], key: "none" }], [{ name: "quantity", key: "down" }]), blueprint, [note]);
+    expect(v.rejected).toBeUndefined();
+    expect((v.question!.parts[0] as any).checked).toEqual(["D", "S"]);
+  });
+
+  it("still rejects a key that says a curve moved when its equation didn't", () => {
+    const v = validateExamQuestion(part([{ name: "D", choices: ["right", "left", "none"], key: "left" }], [{ name: "quantity", key: "down" }]), blueprint, [note]);
+    expect(v.rejected).toMatchObject({ reason: "graph_key_wrong" });
+  });
+});
