@@ -185,6 +185,41 @@ export function answerProblem(db: Db, o: { runId: string; problemId: string; sub
   return { correct, attempt: prior + 1, answer: p.answer, unit: p.unit, steps: p.steps, quote: p.quote, noteId: p.noteId, off };
 }
 
+/** One step of a problem worked step by step: its label, and once answered, whether it was right and its value. */
+export interface StepCheck {
+  index: number;
+  total: number;
+  label: string;
+  correct?: boolean;
+  /** The app's value for this step, shown after you answer it so you can carry on with the right number. */
+  value?: number;
+  explain?: string;
+  next?: string | null;
+}
+
+/**
+ * Work a problem one step at a time, the way the professor marks it: each step's number is checked against the
+ * value the app computed (within 1%). Without `submitted` it only tells you what step `index` asks for. The value is
+ * revealed after each answer (right or wrong, or skipped), like the exam's "if you couldn't do part b, carry on".
+ */
+export function problemStep(db: Db, o: { problemId: string; index: number; submitted?: unknown; skip?: boolean }): StepCheck {
+  const p = getProblem(db, o.problemId);
+  if (!p) throw new QuizError("That problem was deleted.");
+  const index = Number(o.index);
+  if (!Number.isInteger(index) || index < 0 || index >= p.steps.length) throw new QuizError("That step doesn't exist.");
+  const step = p.steps[index];
+  const base = { index, total: p.steps.length, label: step.label };
+  if (o.submitted === undefined && !o.skip) return base;
+  let correct = false;
+  if (!o.skip) {
+    const n = parseNumber(o.submitted);
+    if (n === undefined) throw new QuizError("Type a number, like 250 or 12.5 (a $ or % sign is fine).");
+    // A middle step is often a share (0.25): "25%" means the same thing there.
+    correct = numbersClose(n, step.value) || (/%/.test(String(o.submitted)) && numbersClose(n / 100, step.value));
+  }
+  return { ...base, correct, value: step.value, explain: step.explain, next: p.steps[index + 1]?.label ?? null };
+}
+
 export interface PracticeSummary {
   runId: string;
   total: number;

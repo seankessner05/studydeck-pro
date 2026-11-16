@@ -29,7 +29,7 @@ import { buildPlan, cramFor, insights as buildInsights, lectureProgress, readine
 
 /** Cram mode raises the daily new-card limit to at least this for the class with an exam days away. */
 const CRAM_NEW_PER_DAY = 50;
-import { answerProblem, finishPractice, listProblems, problemAccuracy, problemCounts, problemCoverage, startPractice } from "./study/problems.js";
+import { answerProblem, finishPractice, listProblems, problemAccuracy, problemCounts, problemCoverage, problemStep, startPractice } from "./study/problems.js";
 import { DENSITIES, DENSITY_TARGET, noteVersion, type Density } from "./study/cardgen.js";
 import { CardGenerationJobs, ProblemGenerationJobs, QuestionGenerationJobs } from "./study/jobs.js";
 import { recordUsage, usageSummary } from "./study/usage.js";
@@ -914,6 +914,11 @@ export function createApp(rawDeps: AppDeps) {
   app.post("/api/study/problems/answer", studyRoute((req, res) => {
     const b = req.body ?? {};
     res.json(answerProblem(sdb(), { runId: String(b.runId ?? ""), problemId: String(b.problemId ?? ""), submitted: b.submitted, hinted: !!b.hinted, gaveUp: !!b.gaveUp, msTaken: Number(b.msTaken) }));
+  }));
+
+  app.post("/api/study/problems/step", studyRoute((req, res) => {
+    const b = req.body ?? {};
+    res.json(problemStep(sdb(), { problemId: String(b.problemId ?? ""), index: Number(b.index), submitted: b.submitted, skip: !!b.skip }));
   }));
 
   app.post("/api/study/problems/finish", studyRoute((req, res) => {

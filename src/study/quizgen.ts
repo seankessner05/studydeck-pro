@@ -103,7 +103,7 @@ export function buildQuestionPrompts(note: Note, opts: QuizPromptOptions): { sys
     "",
     "WHAT A GOOD QUESTION LOOKS LIKE",
     "- It puts an idea from the note into a NEW situation the note doesn't describe: a different good, market, firm, country or policy, and new numbers if numbers help. The student must reason with the idea to answer.",
-    "- Good shapes: predict a direction (\"what happens to the equilibrium interest rate and investment when...\"); say which curve shifts and which way; compare two policies or two cases; pick the condition that must hold; identify which concept a described situation is an example of; spot the mistake in a short piece of reasoning.",
+    "- Good shapes: predict a direction (\"what happens to the equilibrium interest rate and investment when...\"); say which curve shifts and which way; compare two policies or two cases; pick the condition that must hold; identify which concept a described situation is an example of; spot the mistake in a short piece of reasoning; choose which model or graph from the course you would use to analyse a described situation (e.g. loanable funds vs. IS-LM vs. AD-AS vs. Solow), since picking the right tool is itself an exam skill. When the note teaches more than one model, include at least one “which model or graph” question.",
     "- It is fully self-contained. If a graph matters, describe it in words (\"on a graph of the domestic market for steel with price on the vertical axis...\"). NEVER use lettered areas, points or curves (\"area B\", \"point E\", \"rectangle D\", \"A + B\"): the student cannot see the class's graph. Never mention the professor, the lecture, class, the notes, a problem set or a worksheet.",
     "- It never copies or lightly rewords a sentence of the note. Do not reuse more than a few words in a row from the note.",
     "- No arithmetic beyond reading off a number you gave: questions whose answer is a computed number belong elsewhere.",
@@ -115,7 +115,7 @@ export function buildQuestionPrompts(note: Note, opts: QuizPromptOptions): { sys
     '   - "multi": a "select all that apply" question with 5 options, of which 2 or 3 are correct.',
     '   - "tf": a declarative statement about a described situation that is either true or false.',
     '3. stem: ONE question (or, for "tf", one statement) on a single line, plain text. Ask exactly ONE thing; never join two questions with "and". A "tf" stem is a statement: no question mark and no "True or false:" prefix.',
-    "4. options (single/multi): plain text with no letter prefixes, all of similar length and style. The correct option must NOT be longer or more detailed than the wrong ones. Wrong options must tempt a student who half-understands: the reversed direction, the wrong curve shifting, a nearby concept, a right idea applied to the wrong case. Each wrong option must be clearly wrong to someone who understands the idea, never arguable. Never use \"all of the above\", \"none of the above\" or \"both A and B\".",
+    "4. options (single/multi): plain text with no letter prefixes, all of similar length and style. The correct option must NOT be longer or more detailed than the wrong ones: in most questions, make one of the WRONG options the longest. Wrong options must tempt a student who half-understands: the reversed direction, the wrong curve shifting, a nearby concept, a right idea applied to the wrong case. Each wrong option must be clearly wrong to someone who understands the idea, never arguable. Never use \"all of the above\", \"none of the above\" or \"both A and B\".",
     '5. "tf": a FALSE statement must be a believable mistake (a reversed direction, the wrong curve, a swapped cause and effect), never absurd, and without giveaway words such as "always" or "never".',
     '6. answer: for single/multi, the letters of the correct options where A is the first option (["B"], or ["A","D"] for multi). For "tf": true or false.',
     "7. explanation: 1 to 3 sentences on the reasoning that gets to the answer and, for single/multi, what the most tempting wrong option gets wrong. Plain text. Describe options by what they SAY, never by letter (the options are shuffled before the student sees them).",
@@ -198,6 +198,24 @@ function lengthRatio(options: string[], right: number): number {
  * Was 1.6; on real lectures the right option was still the longest half the time (chance is 25%), so it is stricter now.
  */
 const LENGTH_GIVEAWAY = 1.35;
+
+/** At most this share of a batch's single-answer questions may have the right option as the longest (chance is 1 in 4). */
+export const LONGEST_RIGHT_SHARE = 0.25;
+
+/** The right option is the longest as the student sees it, by more than a couple of characters. */
+export function rightIsLongest(q: GeneratedQuestion): boolean {
+  if (q.kind !== "single") return false;
+  const shown = q.options.map((o) => plainMath(o).length);
+  const right = shown[q.answer[0]];
+  return right > Math.max(...shown.filter((_, i) => i !== q.answer[0])) + 2;
+}
+
+/** How much longer the right option is than the average wrong one, as shown. */
+function lengthRatioShown(q: GeneratedQuestion): number {
+  const shown = q.options.map((o) => plainMath(o).length);
+  const others = shown.filter((_, i) => i !== q.answer[0]);
+  return shown[q.answer[0]] / (others.reduce((a, b) => a + b, 0) / others.length || 1);
+}
 
 /**
  * The options are shuffled after Claude writes them, so a stray "option B" in the explanation would point at the wrong
@@ -320,6 +338,16 @@ export function validateQuestions(
     }
     const claimed = typeof c.section === "string" ? c.section.trim() : "";
     accepted.push({ kind, stem, options: finalOptions, answer: finalAnswer, explanation: finalExplanation, quote, section: sectionFor(note.body, quote) ?? (claimed || note.title), ...(graph ? { graph } : {}) });
+  }
+  // Across the batch: a test-wise student who always picks the longest option should do no better than chance.
+  // Each question only stood out a little, but on real lectures the right option was still the longest 38-75% of
+  // the time. Keep at most a quarter of the single-answer questions with that pattern, dropping the most obvious first.
+  const singles = accepted.filter((q) => q.kind === "single");
+  const allowed = Math.max(1, Math.ceil(singles.length * LONGEST_RIGHT_SHARE));
+  const tells = singles.filter(rightIsLongest).sort((a, b) => lengthRatioShown(b) - lengthRatioShown(a));
+  for (const q of tells.slice(0, Math.max(0, tells.length - allowed))) {
+    accepted.splice(accepted.indexOf(q), 1);
+    rejected.push({ stem: q.stem, reason: "length_giveaway", detail: `too many questions in this batch whose right option is the longest (${tells.length} of ${singles.length})` });
   }
   return { accepted, rejected };
 }

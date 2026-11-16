@@ -345,3 +345,51 @@ describe("measurements", () => {
     expect(hasLengthTell({ ...q("x", ["y", "z", "w"]), kind: "tf" })).toBe(false);
   });
 });
+
+describe("the length giveaway across a batch", () => {
+  // Different situations, so none is a near-duplicate of another.
+  const STEMS = [
+    "A city council pays for a new stadium with borrowed money. What happens to local equilibrium output?",
+    "Farmers receive a one-time harvest windfall and spend most of it. What happens to national output?",
+    "Exporters sell more machinery abroad after a trade deal. What happens to domestic GDP?",
+    "A tech boom makes firms order more servers this year. What happens to total income?",
+    "Retirees get a surprise pension bonus that they mostly spend. What happens to aggregate output?",
+    "The navy orders three new ships from a domestic shipyard. What happens to overall production?",
+    "Tourists flock to the coast after a festival goes viral. What happens to the region's output?",
+    "A province builds rural broadband financed by bonds. What happens to provincial GDP?",
+  ];
+  const mk = (topic: string, rightLongest: boolean) => ({
+    kind: "single",
+    stem: topic,
+    options: rightLongest ? ["It rises sharply", "It falls", "It stays put", "It halves"] : ["It rises sharply", "It falls sharply over time", "It stays put", "It halves"],
+    answer: ["A"],
+    explanation: "Extra spending becomes income that is partly spent again, so output rises by more than the purchase.",
+    quote: "With MPC = 0.8 the multiplier is 1 / (1 − 0.8) = 5.",
+  });
+
+  it("keeps at most a quarter of single-answer questions whose right option is the longest, dropping the rest", () => {
+    const raw = STEMS.map((t, i) => mk(t, i < 6));
+    const r = validateQuestions(raw, fiscal, [], 10, noShuffle);
+    const tells = r.accepted.filter((q) => q.options[q.answer[0]].length > Math.max(...q.options.filter((_, i) => i !== q.answer[0]).map((o) => o.length)) + 2);
+    expect(tells.length).toBeLessThanOrEqual(Math.ceil(r.accepted.length / 4) + 1);
+    expect(r.rejected.filter((x) => x.reason === "length_giveaway").length).toBeGreaterThanOrEqual(3);
+    expect(r.rejected.find((x) => x.reason === "length_giveaway")?.detail).toMatch(/longest/);
+  });
+
+  it("leaves a batch alone when the right option isn't usually the longest", () => {
+    const raw = STEMS.slice(0, 4).map((t, i) => mk(t, i === 0));
+    const r = validateQuestions(raw, fiscal, [], 10, noShuffle);
+    expect(r.rejected).toEqual([]);
+    expect(r.accepted).toHaveLength(4);
+  });
+});
+
+describe("what the question writer is asked for", () => {
+  it("asks for 'which model or graph' questions, a wrong option as the longest, graphs and LaTeX", () => {
+    const { system } = buildQuestionPrompts(fiscal, { density: "normal", courses: DEFAULT_COURSES });
+    expect(system).toContain("which model or graph");
+    expect(system).toContain("make one of the WRONG options the longest");
+    expect(system).toContain("GRAPH SPEC");
+    expect(system).toContain("\\(");
+  });
+});

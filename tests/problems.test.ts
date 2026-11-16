@@ -359,3 +359,33 @@ describe("problem generation job", () => {
     expect(calls.filter((c) => c === "solve")).toHaveLength(3);
   });
 });
+
+describe("working a problem step by step", async () => {
+  const { addGeneratedProblems, problemStep } = await import("../src/study/problems");
+  const db = studyDb(fs.mkdtempSync(path.join(os.tmpdir(), "sd-steps-")));
+  addGeneratedProblems(db, { id: "ECON300/x.md", course: "ECON300" }, "v1", [{
+    stem: "With k = 49 and y = 3 sqrt(k), and a saving rate of 25%, find saving per worker.",
+    givens: [{ name: "k", value: 49, label: "k" }, { name: "s", value: 0.25, label: "saving rate" }],
+    steps: [{ name: "y", label: "Output per worker", expr: "3 * sqrt(k)", explain: "Plug in k.", value: 21 }, { name: "rate", label: "Saving rate as a share", expr: "s", explain: "25% is 0.25.", value: 0.25 }, { name: "sav", label: "Saving per worker", expr: "rate * y", explain: "Rate times output.", value: 5.25 }],
+    answer: 5.25, unit: "", difficulty: 2, quote: "q", section: "s",
+  }] as any);
+  const id = (db.prepare("SELECT id FROM problems").get() as { id: string }).id;
+
+  it("says what a step asks for without giving its value away", () => {
+    expect(problemStep(db, { problemId: id, index: 0 })).toEqual({ index: 0, total: 3, label: "Output per worker" });
+  });
+
+  it("checks a step within 1%, then shows its value and the next step", () => {
+    expect(problemStep(db, { problemId: id, index: 0, submitted: "21.1" })).toMatchObject({ correct: true, value: 21, next: "Saving rate as a share" });
+    expect(problemStep(db, { problemId: id, index: 0, submitted: "20" })).toMatchObject({ correct: false, value: 21 });
+    expect(problemStep(db, { problemId: id, index: 2, submitted: "5.25" })).toMatchObject({ correct: true, next: null });
+  });
+
+  it("accepts a percent for a share, lets you skip, and refuses nonsense", () => {
+    expect(problemStep(db, { problemId: id, index: 1, submitted: "25%" })).toMatchObject({ correct: true });
+    expect(problemStep(db, { problemId: id, index: 1, skip: true })).toMatchObject({ correct: false, value: 0.25 });
+    expect(() => problemStep(db, { problemId: id, index: 1, submitted: "a lot" })).toThrow(/Type a number/);
+    expect(() => problemStep(db, { problemId: id, index: 3, submitted: "1" })).toThrow(/doesn't exist/);
+    expect(() => problemStep(db, { problemId: "nope", index: 0 })).toThrow(/deleted/);
+  });
+});

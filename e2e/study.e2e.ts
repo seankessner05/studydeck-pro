@@ -72,7 +72,7 @@ test.describe("the five things that must always work", () => {
     await page.locator("#startPractice").click();
     await expect(page.locator("#problemInput")).toBeVisible();
     const stem = await page.locator("#studyBody").innerText();
-    await page.locator("#problemInput").fill(stem.includes("monopolist") ? "15" : "20");
+    await page.locator("#problemInput").fill(stem.includes("monopolist") ? "15" : stem.includes("saving per worker") ? "6.3" : "20");
     await page.locator("#checkProblem").click();
     await expect(page.locator("#nextP")).toBeVisible();
     await expect(page.locator("#studyBody")).toContainText(/correct|right/i);
@@ -363,6 +363,30 @@ test.describe("math", () => {
     await page.locator("#revealBtn").click();
     await expect(body.locator(".katex")).toHaveCount(3);
     expect(await body.locator(".katex-error").count()).toBe(0);
+    expect(problems).toEqual([]);
+  });
+});
+
+test.describe("step by step", () => {
+  test("a problem worked step by step: each step checked, its value shown, and a step score at the end", async ({ page }) => {
+    const problems = watch(page);
+    await page.goto("/");
+    await page.locator('[data-course="ECON300"]').dispatchEvent("click");
+    await expect(page.locator("main")).toContainText("Macroeconomics");
+    await page.locator('[data-view="study"]').click();
+    await page.locator('#studyBody [data-sub="problems"]').click();
+    await page.locator("#startPractice").click();
+    await page.locator("#stepMode").click();
+    await expect(page.locator("#studyBody")).toContainText("Step 1 of 2: Output per worker");
+    // a wrong first step: marked, and the right value given so the next step can still be done
+    await page.locator("#stepInput").fill("20");
+    await page.locator("#checkStep").click();
+    await expect(page.locator("#studyBody")).toContainText("the app's value: 21");
+    await expect(page.locator("#studyBody")).toContainText("Step 2 of 2: Saving per worker");
+    await page.locator("#stepInput").fill("6.3");
+    await page.locator("#stepInput").press("Enter");
+    await expect(page.locator("#nextP")).toBeVisible();
+    await expect(page.locator("#studyBody")).toContainText("Steps right: 1 of 2 (50%)");
     expect(problems).toEqual([]);
   });
 });

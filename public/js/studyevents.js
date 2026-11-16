@@ -3,7 +3,7 @@ import { selectCourse } from "./shell.js";
 import { loadStudyToday, renderStudy } from "./cards.js";
 import { startQuiz } from "./quiz.js";
 import { refreshAi } from "./panels.js";
-import { PRB, exitPractice, nextProblem, renderProblemPlay, renderProblemsHome, startPractice, submitProblem } from "./problems.js";
+import { PRB, exitPractice, nextProblem, renderProblemPlay, renderProblemsHome, startPractice, startSteps, submitProblem, submitStep } from "./problems.js";
 import { TUT, loadTutorHome, pickTutorLecture, renderTutor, sendTutor, startTutorSession } from "./tutor.js";
 import { EXM, dateInput, gradeWrittenNow, loadExamHome, makeSheet, openSheet, renderExam, renderExamHome, renderExamResults, reviewSitting, saveExamAnswers, saveExamForm, startMockExam, submitExam, toggleExamOption } from "./exams.js";
 import { PG, loadProgress, renderProgress, runPlanItem } from "./progress.js";
@@ -48,6 +48,9 @@ export function init() {
     if (hit("#hintBtn")) { PRB.hintShown = true; PRB.hinted = true; return renderProblemPlay(); }
     if (hit("#checkProblem")) return submitProblem(false);
     if (hit("#giveUp")) { PRB.hinted = true; return submitProblem(true); }
+    if (hit("#stepMode")) return startSteps();
+    if (hit("#checkStep")) return submitStep(false);
+    if (hit("#skipStep")) return submitStep(true);
     if (hit("#nextP")) return nextProblem();
     const dp = hit("[data-del-p]"); if (dp) return deleteWithUndo("problem", `/api/study/problems/${encodeURIComponent(dp.dataset.delP)}`);
     // tutor
@@ -96,6 +99,7 @@ export function init() {
   $("studyBody").addEventListener("input", (e) => {
     const t = e.target;
     if (t.id === "problemInput") { PRB.input = t.value; return; }
+    if (t.id === "stepInput" && PRB.steps) { PRB.steps.input = t.value; return; }
     if (t.id === "tutInput") { TUT.input = t.value; return; }
     if (t.dataset && t.dataset.exText !== undefined) { EXM.answers[t.dataset.exText] = t.value; saveExamAnswers(); return; }
     if (t.dataset && t.dataset.remarkText !== undefined) { EXM.remarkText = t.value; return; }
@@ -111,6 +115,7 @@ export function init() {
         e.preventDefault();
         if (PRB.result) nextProblem();
         else if (e.target && e.target.id === "problemInput") submitProblem(false);
+        else if (e.target && e.target.id === "stepInput") submitStep(false);
       }
     }
     if (S.sub === "tutor" && TUT.mode === "chat" && e.key === "Enter" && (e.metaKey || e.ctrlKey) && e.target && e.target.id === "tutInput") { e.preventDefault(); sendTutor(); }

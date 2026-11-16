@@ -7,7 +7,9 @@ import { figureSvg } from "./graph.js";
 import { goSub, renderStudyMore } from "./studyhub.js";
 
 // =============================================================== practice problems
-export const PRB = { mode: "home", home: null, length: 5, error: "", runId: "", queue: [], idx: 0, input: "", hintShown: false, hinted: false, result: null, busy: false, qT0: 0, summary: null };
+export const PRB = { mode: "home", home: null, length: 5, error: "", runId: "", queue: [], idx: 0, input: "", hintShown: false, hinted: false, result: null, busy: false, qT0: 0, summary: null,
+  // Step by step: { index, total, label, input, error, done: [{ label, submitted, correct, value, explain, skipped }] }
+  steps: null };
 export const DIFF = { 1: "●○○ Easy", 2: "●●○ Medium", 3: "●●● Hard" };
 
 export async function loadProblemsHome() {
@@ -76,6 +78,7 @@ export function renderProblemPlay() {
   const feedback = r ? `<div class="fade-in space-y-3">
       <div role="status" aria-live="polite" class="rounded-2xl px-4 py-3 ${r.correct ? "bg-emerald-100 text-emerald-900 dark:bg-emerald-500/20 dark:text-emerald-200" : "bg-red-50 text-red-900 dark:bg-red-500/10 dark:text-red-200"}">
         <div class="text-base font-extrabold">${r.correct ? (r.attempt > 1 ? "Got it this time 💪" : PRB.hinted ? "Correct, with a hint" : "Correct! 🎉") : r.gaveUp ? "Here's how it works" : "Not quite"}</div>
+        ${PRB.steps?.done.length ? `<div class="mt-1 text-sm font-extrabold">${stepScoreLine(PRB.steps)}</div>` : ""}
         <div class="mt-1 text-sm font-medium">The answer is <b>${esc(fmtUnit(r.answer, r.unit))}</b>.${!r.correct && r.off !== null ? ` You were off by ${Math.round(r.off * 100)}%.` : ""} The app computed every step below itself.</div></div>
       ${steps}
       ${r.quote ? `<div class="rounded-2xl bg-sun/20 px-4 py-3 text-left text-xs leading-relaxed text-amber-900 dark:text-sun"><div class="mb-1 text-[10px] font-extrabold uppercase tracking-wider opacity-70">The formula, from your notes</div>“${esc(r.quote)}”
@@ -88,7 +91,9 @@ export function renderProblemPlay() {
     <div class="${panelCls} !p-6 md:!p-8 !shadow-pop">
       <div class="mb-3 flex flex-wrap items-center gap-2 text-[11px] font-extrabold uppercase tracking-wider text-slate-400"><span class="rounded-full px-2 py-0.5 ${palette(p.course).tile} ${palette(p.course).text}">${esc(p.course)}</span>${DIFF[p.difficulty]}${p.again ? '<span class="rounded-full bg-sun/30 px-2 py-0.5 text-amber-800 dark:text-sun">Second try</span>' : ""}</div>
       <div class="text-lg leading-relaxed font-bold md:text-xl">${esc(p.stem)}</div>${figureSvg(p.figure)}</div>
-    ${!r ? `<div class="space-y-3">
+    ${!r && PRB.steps ? stepModeHtml(p) : ""}
+    ${!r && !PRB.steps ? `<div class="space-y-3">
+      <button id="stepMode" class="${btnGhost} w-full">🪜 Solve it step by step <span class="text-xs font-semibold text-slate-400">(each step checked, like partial credit on the exam)</span></button>
       ${PRB.hintShown ? `<div class="rounded-2xl bg-brand-50 px-4 py-3 text-sm dark:bg-brand-500/10"><div class="text-[10px] font-extrabold uppercase tracking-wider text-brand-600 dark:text-brand-300">Hint · your first step</div><b>${esc(p.hint.label)}.</b> ${esc(p.hint.explain)}</div>`
         : `<button id="hintBtn" class="${btnGhost}">💡 Show a hint <span class="text-xs font-semibold text-slate-400">(counts as help)</span></button>`}
       <div class="flex items-center gap-2"><div class="relative flex-1"><input id="problemInput" value="${esc(PRB.input)}" inputmode="decimal" autocomplete="off" placeholder="Your answer${p.unit ? ` (${esc(p.unit)})` : ""}" class="w-full rounded-2xl border-2 border-slate-200 bg-white px-4 py-3.5 text-lg font-extrabold tabular-nums focus:border-brand-500 focus:outline-none dark:border-ink-600 dark:bg-ink-800" /></div>
@@ -98,7 +103,65 @@ export function renderProblemPlay() {
     ${feedback}
     <div class="text-center text-[11px] font-semibold text-slate-400">${r ? "Missed problems come back at the end of this set, and first next time." : "Type a number (a $ or % sign is fine). Within 1% counts as right. Esc to leave."}</div>
   </div>`;
-  if (!r) { const el = $("problemInput"); if (el && document.activeElement !== el) el.focus(); }
+  if (!r) { const el = $(PRB.steps ? "stepInput" : "problemInput"); if (el && document.activeElement !== el) el.focus(); }
+}
+
+const stepScoreLine = (st) => {
+  const right = st.done.filter((d) => d.correct).length;
+  return `Steps right: ${right} of ${st.total} (${Math.round((100 * right) / st.total)}%). On the exam, each right step earns partial credit.`;
+};
+
+function stepModeHtml(p) {
+  const st = PRB.steps;
+  const done = st.done.map((d, i) => `<li class="rounded-xl px-3 py-2 ${d.correct ? "bg-emerald-50 dark:bg-emerald-500/10" : "bg-red-50 dark:bg-red-500/10"}">
+      <div class="flex flex-wrap items-baseline justify-between gap-2"><span class="text-sm font-bold">${i + 1}. ${esc(d.label)}</span>
+        <span class="text-xs font-extrabold ${d.correct ? "text-emerald-700 dark:text-emerald-300" : "text-red-700 dark:text-red-300"}">${d.skipped ? "Skipped" : `You: ${esc(d.submitted)}`} · ${d.correct ? "✓" : `the app's value: ${esc(fmtNum(d.value))}`}</span></div>
+      ${d.explain ? `<div class="mt-0.5 text-xs text-slate-500 dark:text-slate-400">${esc(d.explain)}</div>` : ""}</li>`).join("");
+  const current = st.index < st.total ? `<div class="space-y-2">
+      <label for="stepInput" class="block text-sm font-extrabold">Step ${st.index + 1} of ${st.total}: ${esc(st.label)}${st.index === st.total - 1 && p.unit ? ` <span class="text-xs font-semibold text-slate-400">(${esc(p.unit)})</span>` : ""}</label>
+      <div class="flex items-center gap-2"><input id="stepInput" value="${esc(st.input)}" inputmode="decimal" autocomplete="off" placeholder="This step's number" class="min-w-0 flex-1 rounded-2xl border-2 border-slate-200 bg-white px-4 py-3 text-lg font-extrabold tabular-nums focus:border-brand-500 focus:outline-none dark:border-ink-600 dark:bg-ink-800" />
+        <button id="checkStep" class="${btnPrimary} !py-3">Check</button></div>
+      ${st.error ? `<div class="text-xs font-semibold text-red-600 dark:text-red-400" role="alert">${esc(st.error)}</div>` : ""}
+      <button id="skipStep" class="text-xs font-bold text-slate-400 underline hover:text-slate-600">Skip this step: show its value and carry on</button></div>` : "";
+  return `<div class="space-y-3 rounded-2xl bg-slate-50 p-4 dark:bg-ink-700/50">
+      <div class="text-[11px] font-extrabold uppercase tracking-wider text-slate-400">Step by step · counts as help in your progress</div>
+      ${done ? `<ol class="space-y-2" aria-live="polite">${done}</ol>` : ""}
+      ${current}</div>`;
+}
+
+/** Start working the current problem step by step. */
+export async function startSteps() {
+  const p = PRB.queue[PRB.idx];
+  if (!p || PRB.result || PRB.busy) return;
+  const r = await api("/api/study/problems/step", "POST", { problemId: p.id, index: 0 });
+  if (!r.ok) { PRB.error = r.data.error || "Couldn't start that."; return renderProblemPlay(); }
+  PRB.steps = { index: 0, total: r.data.total, label: r.data.label, input: "", error: "", done: [] };
+  PRB.hinted = true;
+  renderProblemPlay();
+}
+
+/** Check (or skip) the current step. After the last one, the problem is answered with your final number. */
+export async function submitStep(skip = false) {
+  const p = PRB.queue[PRB.idx];
+  const st = PRB.steps;
+  if (!p || !st || PRB.result || PRB.busy || st.index >= st.total) return;
+  if (!skip && !st.input.trim()) { st.error = "Type a number first, or skip the step."; return renderProblemPlay(); }
+  PRB.busy = true;
+  let r;
+  try {
+    r = await api("/api/study/problems/step", "POST", { problemId: p.id, index: st.index, submitted: skip ? undefined : st.input, skip });
+  } finally {
+    PRB.busy = false;
+  }
+  if (!r.ok) { st.error = r.data.error || "Couldn't check that step."; return renderProblemPlay(); }
+  st.done.push({ label: st.label, submitted: st.input.trim(), correct: r.data.correct, value: r.data.value, explain: r.data.explain, skipped: skip });
+  const last = st.index === st.total - 1;
+  const finalInput = st.input;
+  Object.assign(st, { index: st.index + 1, label: r.data.next ?? "", input: "", error: "" });
+  if (!last) return renderProblemPlay();
+  // the last step is the problem's answer: record it like any other attempt
+  PRB.input = skip ? "" : finalInput;
+  return submitProblem(skip);
 }
 
 export async function submitProblem(gaveUp = false) {
@@ -121,7 +184,7 @@ export async function submitProblem(gaveUp = false) {
 export function nextProblem() {
   if (!PRB.result) return;
   PRB.idx++;
-  Object.assign(PRB, { input: "", hintShown: false, hinted: false, result: null, error: "", qT0: Date.now() });
+  Object.assign(PRB, { input: "", hintShown: false, hinted: false, result: null, error: "", qT0: Date.now(), steps: null });
   if (PRB.idx >= PRB.queue.length) return finishPracticeRun();
   renderProblemPlay();
 }

@@ -65,6 +65,15 @@ addGeneratedQuestions(db, golden, "v1", [
     graph: { x: { label: "Capital per worker (k)", min: 0, max: 120 }, y: { label: "Investment per worker", min: 0, max: 12 }, curves: [{ label: "sf(k)", of: "y", expr: "0.9*x^0.5", dashed: false }, { label: "(n+d)k", of: "y", expr: "0.1*x", dashed: false }], points: [{ label: "SS", on: ["sf(k)", "(n+d)k"] }], values: true },
   }),
 ]);
+// A two-step problem (the only one in ECON300), for working a problem step by step.
+addGeneratedProblems(db, golden, "v1", [
+  {
+    stem: "Output per worker is y = 3 times the square root of k, with k = 49. Households save s = 0.3 of output. Find saving per worker.",
+    givens: [{ name: "k", value: 49, label: "capital per worker" }, { name: "s", value: 0.3, label: "saving rate" }],
+    steps: [{ name: "y", label: "Output per worker", expr: "3 * sqrt(k)", explain: "Put k into the production function.", value: 21 }, { name: "sav", label: "Saving per worker", expr: "s * y", explain: "Saving is the saving rate times output.", value: 6.3 }],
+    answer: 6.3, unit: "", difficulty: 1, quote: "The golden rule level of capital maximizes consumption per worker", section: "Golden rule",
+  },
+] as any);
 addGeneratedProblems(db, monopoly, "v1", [
   {
     stem: "A monopolist faces inverse demand P = 40 - Q and has marginal cost of 10. Find the profit-maximizing quantity.",
