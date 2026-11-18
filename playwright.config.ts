@@ -2,7 +2,10 @@ import { defineConfig, devices } from "@playwright/test";
 
 const PORT = 3210;
 
-/** Browser tests: `npm run test:e2e`. They start their own server with made-up data and a stand-in for Claude. */
+/**
+ * Browser tests. `npm run test:e2e` runs the full suite. `npm run test:e2e:smoke` runs the short agent check.
+ * Both start this app themselves (e2e/server.ts): made-up notes and a stand-in for Claude, never the real CLI.
+ */
 export default defineConfig({
   testDir: "e2e",
   testMatch: "*.e2e.ts",
@@ -20,6 +23,7 @@ export default defineConfig({
   },
   projects: [
     { name: "desktop", use: { ...devices["Desktop Chrome"], viewport: { width: 1280, height: 800 } } },
-    { name: "phone", use: { ...devices["Pixel 7"] } },
+    // The phone project already runs the full study suite. The smoke file is the fast desktop check.
+    { name: "phone", testIgnore: /smoke\.e2e\.ts/, use: { ...devices["Pixel 7"] } },
   ],
 });

@@ -17,7 +17,8 @@
     "eval:cards": "tsx --disable-warning=ExperimentalWarning src/eval/cards.ts",
     "eval:quiz": "tsx --disable-warning=ExperimentalWarning src/eval/quiz.ts",
     "eval:problems": "tsx --disable-warning=ExperimentalWarning src/eval/problems.ts",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "test:e2e:smoke": "playwright test e2e/smoke.e2e.ts --project=desktop"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",

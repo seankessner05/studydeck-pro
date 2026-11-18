@@ -184,13 +184,20 @@ The goal: a Quizlet-meets-NotebookLM study partner that knows your whole semeste
 ## Development
 
 ```bash
-npm test          # 370+ unit and API tests: notes, retrieval, citations, generation gates, study logic, security, trash, restore, jobs
-npm run test:e2e  # browser tests (Playwright, desktop and phone): the five critical study flows, undo and restore, and hostile text on every screen
-npm run eval      # 19 real questions to Claude; reports regressions vs. the last run (needs a Claude login)
+npm test               # 370+ unit and API tests: notes, retrieval, citations, generation gates, study logic, security, trash, restore, jobs
+npm run test:e2e:smoke # fast browser smoke (Playwright, desktop). Run this after a UI change.
+npm run test:e2e       # full browser suite (desktop and phone): the smoke checks, the five critical study flows, undo and restore, and hostile text on every screen
+npm run eval           # 19 real questions to Claude; reports regressions vs. the last run (needs a Claude login)
 npm run typecheck
 ```
 
-Tests never call the real CLI: the Claude runner is injected, so the API and sync are tested with fakes. The browser tests start their own server (`e2e/server.ts`) on made-up notes in a temporary folder. The first time, run `npx playwright install chromium`. GitHub Actions runs the typecheck, the unit tests and the browser tests on every push; no secrets are involved.
+### Browser tests for a coding agent
+
+After you change anything a person clicks (tabs, Study screens, cards, quizzes, exams, chat), run `npm run test:e2e:smoke` and read the failures. Do that instead of a screenshot-and-debug loop. The first time on a machine, run `npx playwright install chromium`.
+
+The smoke suite checks that the app loads, Chat / Notes / Study open, every Study screen renders, a card added by hand can be flipped and rated, a quick mock exam can be handed in, and a chat answer comes back with a citation. `npm run test:e2e` is the longer suite, including the phone layout. Playwright starts the app itself from `e2e/server.ts` (made-up notes, a stand-in for Claude). It does not use `npm run dev`, and it does not call the Claude CLI or any paid API. No API key and no `.env` file are involved.
+
+Tests never call the real CLI: the Claude runner is injected, so the API and sync are tested with fakes. The browser tests start their own server (`e2e/server.ts`) on made-up notes in a temporary folder. GitHub Actions runs the typecheck, the unit tests and the browser tests (including the smoke file) on every push and pull request; no secrets are involved. See `CLAUDE.md` for the same instructions aimed at a coding agent.
 
 ## Acknowledgments
 
